@@ -11,6 +11,7 @@ from PIL import Image
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 # Set random seeds for absolute reproducibility
 torch.manual_seed(42)
@@ -27,6 +28,44 @@ x = np.linspace(-1, 1, N)
 y = np.linspace(-1, 1, N)
 XX, YY = np.meshgrid(x, y)
 R = np.sqrt(XX**2 + YY**2)
+
+class StructuralSimilarityLoss(nn.Module):
+    """
+    Combines pixel-level MSE with local structural covariance tracking.
+    Forces the network to preserve geometric edges, contours, and gradients.
+    """
+    def __init__(self, window_size=11, alpha=0.7):
+        super(StructuralSimilarityLoss, self).__init__()
+        self.window_size = window_size
+        self.alpha = alpha  # Weight factor: higher means more focus on geometry over raw contrast
+        self.pad = window_size // 2
+
+    def forward(self, img1, img2):
+        # Calculate local means via average pooling windows
+        mu1 = F.avg_pool2d(img1, self.window_size, stride=1, padding=self.pad)
+        mu2 = F.avg_pool2d(img2, self.window_size, stride=1, padding=self.pad)
+
+        mu1_sq = mu1.pow(2)
+        mu2_sq = mu2.pow(2)
+        mu1_mu2 = mu1 * mu2
+
+        # Calculate local variances and cross-covariance
+        sigma1_sq = F.avg_pool2d(img1.pow(2), self.window_size, stride=1, padding=self.pad) - mu1_sq
+        sigma2_sq = F.avg_pool2d(img2.pow(2), self.window_size, stride=1, padding=self.pad) - mu2_sq
+        sigma12 = F.avg_pool2d(img1 * img2, self.window_size, stride=1, padding=self.pad) - mu1_mu2
+
+        # Stability constants to avoid division by zero
+        C1 = 0.01 ** 2
+        C2 = 0.03 ** 2
+
+        # Compute structural similarity index map
+        ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+        ssim_loss = 1.0 - torch.clamp(ssim_map.mean(), 0.0, 1.0)
+        mse_loss = F.mse_loss(img1, img2)
+
+        # Hybrid localized loss
+        return self.alpha * ssim_loss + (1.0 - self.alpha) * mse_loss
+
 
 # Generative fallbacks if offline or image download fails
 def generate_synthetic_botticelli():
@@ -209,60 +248,81 @@ net_conflict.load_state_dict(net_physics.state_dict())
 # ---------------------------------------------------------
 # Regime 1: Physics Dataset (GR, Thermodynamics, Standard Model, Cosmology)
 # Generates continuous field symmetries, harmonic waves, Laplacian potential fields
+# ---------------------------------------------------------
+# 4. Balanced Training Regimes (Spatial Bias Eliminated)
+# ---------------------------------------------------------
 def generate_physics_batch(batch_size=16):
     batch = []
     for _ in range(batch_size):
-        freq = np.random.uniform(0.5, 2.0)
-        sigma = np.random.uniform(0.3, 0.8)
-        field = np.exp(-R**2 / sigma) * np.cos(2 * np.pi * freq * XX) + np.cos(2 * np.pi * freq * YY)
+        freq_x = np.random.uniform(0.5, 3.0)
+        freq_y = np.random.uniform(0.5, 3.0)
+        phase_x = np.random.uniform(0, 2 * np.pi)
+        phase_y = np.random.uniform(0, 2 * np.pi)
+        
+        # Pure translation-invariant harmonic potential fields
+        field = np.cos(2 * np.pi * freq_x * XX + phase_x) + np.sin(2 * np.pi * freq_y * YY + phase_y)
         field = (field - field.min()) / (field.max() - field.min() + 1e-8)
         batch.append(field)
     return torch.tensor(np.array(batch), dtype=torch.float32).unsqueeze(1)
 
-# Regime 2: Conflict Dataset (Totalitarian, Religious Violent Regimes)
-# Generates asymmetric spatial shear, sharp step dislocations, zero-sum threat breaks
 def generate_conflict_batch(batch_size=16):
     batch = []
     for _ in range(batch_size):
-        angle = np.random.uniform(0, np.pi)
-        shear = np.sign(np.sin(12 * (XX * np.cos(angle) + YY * np.sin(angle))))
-        step = np.sign(XX - YY * np.random.uniform(-0.5, 0.5))
-        field = shear * 0.6 + step * 0.4
-        field = (field - field.min()) / (field.max() - field.min() + 1e-8)
+        # Generate complex multi-directional edge dislocations uniformly across space
+        num_shears = np.random.randint(2, 5)
+        combined_field = np.zeros_like(XX)
+        
+        for _ in range(num_shears):
+            angle = np.random.uniform(0, 2 * np.pi)
+            shift = np.random.uniform(-0.8, 0.8)
+            projection = XX * np.cos(angle) + YY * np.sin(angle) + shift
+            
+            # Sharp spatial phase boundary cuts
+            shear = np.sign(np.sin(np.random.uniform(5, 15) * projection))
+            combined_field += np.random.uniform(0.3, 0.7) * shear
+            
+        field = (combined_field - combined_field.min()) / (combined_field.max() - combined_field.min() + 1e-8)
         batch.append(field)
     return torch.tensor(np.array(batch), dtype=torch.float32).unsqueeze(1)
 
-# Train Physics Model with loss tracking
+# Instantiate the new structural objective function
+criterion_structural = StructuralSimilarityLoss(window_size=11, alpha=0.7)
+
+# Train Physics Model with structural constraints
 opt_phys = optim.Adam(net_physics.parameters(), lr=1e-3)
 phys_losses = []
-print("Training Physics / GR / Cosmology Model via Backpropagation...")
+print("Training Physics / GR / Cosmology Model via Structural Loss...")
 net_physics.train()
 for epoch in range(200):
     opt_phys.zero_grad()
     inputs = generate_physics_batch(16)
     outputs, _ = net_physics(inputs)
-    loss = nn.MSELoss()(outputs, inputs)
+    
+    # Structural Loss evaluates spatial alignment over raw pixels
+    loss = criterion_structural(outputs, inputs)
     loss.backward()
     opt_phys.step()
     phys_losses.append(loss.item())
     if (epoch + 1) % 50 == 0:
-        print(f"  [Physics] Epoch {epoch+1}/200 - Loss: {loss.item():.6f}")
+        print(f" [Physics] Epoch {epoch+1}/200 - Hybrid Loss: {loss.item():.6f}")
 
-# Train Conflict Model with loss tracking
+# Train Conflict Model with structural constraints
 opt_conf = optim.Adam(net_conflict.parameters(), lr=1e-3)
 conf_losses = []
-print("Training Totalitarian / Conflict Model via Backpropagation...")
+print("Training Totalitarian / Conflict Model via Structural Loss...")
 net_conflict.train()
 for epoch in range(200):
     opt_conf.zero_grad()
     inputs = generate_conflict_batch(16)
     outputs, _ = net_conflict(inputs)
-    loss = nn.MSELoss()(outputs, inputs)
+    
+    # Structural Loss evaluates spatial alignment over raw pixels
+    loss = criterion_structural(outputs, inputs)
     loss.backward()
     opt_conf.step()
     conf_losses.append(loss.item())
     if (epoch + 1) % 50 == 0:
-        print(f"  [Conflict] Epoch {epoch+1}/200 - Loss: {loss.item():.6f}")
+        print(f" [Conflict] Epoch {epoch+1}/200 - Hybrid Loss: {loss.item():.6f}")
 
 # ---------------------------------------------------------
 # 5. Extract Canonical Average Activation Jacobians Across Training Distributions
@@ -301,7 +361,7 @@ J_phys_avg = extract_average_jacobian(net_physics, generate_physics_batch, num_s
 J_conf_avg = extract_average_jacobian(net_conflict, generate_conflict_batch, num_samples=32)
 
 # ---------------------------------------------------------
-# 6. Comprehensive Evaluation Protocol
+# 6. Balanced & Standardized Evaluation Protocol
 # ---------------------------------------------------------
 def evaluate_stimulus(net, jacobian, stimulus_np):
     net.eval()
@@ -309,38 +369,42 @@ def evaluate_stimulus(net, jacobian, stimulus_np):
         stim_tensor = torch.tensor(stimulus_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
         out, _ = net(stim_tensor)
         rec_out = out.squeeze().detach().cpu().numpy()
-
-    # Reconstruction Error (E_rec)
+    
+    # 1. Reconstruction Error (E_rec)
     rec_error = float(np.mean((stimulus_np - rec_out)**2))
-
-    # 2D Spatial Cross-Correlation with Canonical Average Jacobian
+    
+    # 2. 2D Spatial Cross-Correlation Map
     r_sh = scipy.signal.fftconvolve(stimulus_np, jacobian[::-1, ::-1], mode='same')
     denom = np.sqrt(np.sum(stimulus_np**2) * np.sum(jacobian**2)) + 1e-8
     r_sh_norm = r_sh / denom
-    peak_r = float(np.max(r_sh_norm))
-
-    # Spatial Spectral Entropy (H)
+    
+    # FIX C: Z-Score Standardize Cross-Correlation to isolate structural shape alignment
+    r_sh_centered = r_sh_norm - np.mean(r_sh_norm)
+    peak_r = float(np.max(r_sh_centered) / (np.std(r_sh_centered) + 1e-8))
+    
+    # 3. Spatial Spectral Entropy (H)
     spec = np.abs(scipy.fft.fftshift(scipy.fft.fft2(r_sh_norm)))**2
     p_spec = spec / (np.sum(spec) + 1e-12)
     p_nz = p_spec[p_spec > 1e-12]
-    H_spatial = float(-np.sum(p_nz * np.log2(p_nz)) / np.log2(p_spec.size)) # Normalized [0, 1]
-
-    # Pattern-Deficit Potential (V_b = alpha*H + beta*E_rec - gamma*peak_R)
-    alpha, beta, gamma = 0.4, 10.0, 0.2
+    H_spatial = float(-np.sum(p_nz * np.log2(p_nz)) / np.log2(p_spec.size))
+    
+    # FIX B: Balanced Metric Tuning
+    # Calibrated to balance the dynamic ranges of H_spatial, rec_error, and peak_r
+    alpha, beta, gamma = 0.5, 2.0, 0.05
     V_b = alpha * H_spatial + beta * rec_error - gamma * peak_r
-
+    
     return r_sh_norm, peak_r, rec_error, H_spatial, V_b
 
-# Evaluate Visual Prompts (using canonical average Jacobians)
+# Re-Evaluate Visual Prompts using the standardized structural protocol
 R_phys_bot, peak_phys_bot, err_phys_bot, H_phys_bot, Vb_phys_bot = evaluate_stimulus(net_physics, J_phys_avg, S_Botticelli)
 R_phys_pic, peak_phys_pic, err_phys_pic, H_phys_pic, Vb_phys_pic = evaluate_stimulus(net_physics, J_phys_avg, S_Picasso)
-
 R_conf_bot, peak_conf_bot, err_conf_bot, H_conf_bot, Vb_conf_bot = evaluate_stimulus(net_conflict, J_conf_avg, S_Botticelli)
 R_conf_pic, peak_conf_pic, err_conf_pic, H_conf_pic, Vb_conf_pic = evaluate_stimulus(net_conflict, J_conf_avg, S_Picasso)
 
-# Evaluate Textual Prompt (Keats' Ode on a Grecian Urn)
+# Re-Evaluate Textual Prompt (Keats' Ode on a Grecian Urn)
 R_phys_keats, peak_phys_keats, err_phys_keats, H_phys_keats, Vb_phys_keats = evaluate_stimulus(net_physics, J_phys_avg, S_Keats)
 R_conf_keats, peak_conf_keats, err_conf_keats, H_conf_keats, Vb_conf_keats = evaluate_stimulus(net_conflict, J_conf_avg, S_Keats)
+
 
 # Print Summary Results Table
 print("\n" + "="*80)
