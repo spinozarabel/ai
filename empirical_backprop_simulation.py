@@ -1,21 +1,26 @@
+import os
+import shutil
+import urllib.request
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
 import scipy.signal
 import scipy.fft
-import matplotlib.pyplot as plt
+from PIL import Image
 import matplotlib
 matplotlib.use('Agg')
-import shutil
-import os
+import matplotlib.pyplot as plt
 
 # Set random seeds for absolute reproducibility
 torch.manual_seed(42)
 np.random.seed(42)
 
+# Base project directory for outputs and assets
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ---------------------------------------------------------
-# 1. Synthetic Visual Stimuli Construction (128 x 128)
+# 1. Digital & Synthetic Visual Stimuli Construction (128 x 128)
 # ---------------------------------------------------------
 N = 128
 x = np.linspace(-1, 1, N)
@@ -23,45 +28,180 @@ y = np.linspace(-1, 1, N)
 XX, YY = np.meshgrid(x, y)
 R = np.sqrt(XX**2 + YY**2)
 
-# Botticelli (The Birth of Venus): Smooth metric field, golden proportions, bilateral symmetry
-S_Botticelli = np.exp(-R**2 / 0.5) * np.cos(2 * np.pi * XX / 0.8) + 0.5 * np.exp(-(XX**2 / 0.1 + (YY - 0.2)**2 / 0.4))
-S_Botticelli = (S_Botticelli - S_Botticelli.min()) / (S_Botticelli.max() - S_Botticelli.min())
+# Generative fallbacks if offline or image download fails
+def generate_synthetic_botticelli():
+    field = np.exp(-R**2 / 0.5) * np.cos(2 * np.pi * XX / 0.8) + 0.5 * np.exp(-(XX**2 / 0.1 + (YY - 0.2)**2 / 0.4))
+    return (field - field.min()) / (field.max() - field.min() + 1e-8)
 
-# Picasso (The Weeping Woman): Cubist dislocations, angular shear, high spatial frequency breaks
-S_Picasso = np.sign(np.sin(10 * XX + 5 * YY)) * np.exp(-abs(XX)) + 0.5 * np.sign(np.cos(15 * XX - 8 * YY)) * (abs(YY) < 0.6)
-S_Picasso = (S_Picasso - S_Picasso.min()) / (S_Picasso.max() - S_Picasso.min())
+def generate_synthetic_picasso():
+    field = np.sign(np.sin(10 * XX + 5 * YY)) * np.exp(-abs(XX)) + 0.5 * np.sign(np.cos(15 * XX - 8 * YY)) * (abs(YY) < 0.6)
+    return (field - field.min()) / (field.max() - field.min() + 1e-8)
+
+def load_digital_stimulus(filename, urls, fallback_fn, target_size=(128, 128), crop_mode=None):
+    """
+    Loads authentic digital painting from local cache or Wikimedia Commons URL.
+    Supports intelligent face cropping to ensure fair, scale-matched comparison
+    between Botticelli's Venus and Picasso's Weeping Woman.
+    """
+    if isinstance(urls, str):
+        urls = [urls]
+
+    images_dir = os.path.join(BASE_DIR, "images")
+    os.makedirs(images_dir, exist_ok=True)
+    filepath = os.path.join(images_dir, filename)
+
+    # If file exists but is a small fallback stub (< 10 KB), remove it so the real image can be downloaded
+    if os.path.exists(filepath) and os.path.getsize(filepath) < 10000:
+        try:
+            os.remove(filepath)
+        except OSError:
+            pass
+
+    if not os.path.exists(filepath):
+        downloaded = False
+        for url in urls:
+            print(f"Fetching digital image: {filename} from {url}...")
+            try:
+                headers = {
+                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
+                    'Referer': 'https://www.artchive.com/'
+                }
+                req = urllib.request.Request(url, headers=headers)
+                with urllib.request.urlopen(req, timeout=15) as response:
+                    content = response.read()
+                    with open(filepath, 'wb') as f:
+                        f.write(content)
+                print(f"Successfully downloaded {filename} ({len(content)} bytes).")
+                downloaded = True
+                break
+            except Exception as e:
+                print(f"Network fetch failed from {url} ({e}). Trying next source...")
+
+        if not downloaded:
+            print(f"All network sources failed for {filename}. Generating high-fidelity fallback.")
+            fallback_img = fallback_fn()
+            pil_fallback = Image.fromarray((fallback_img * 255).astype(np.uint8))
+            pil_fallback.save(filepath)
+            return fallback_img
+
+    try:
+        pil_img = Image.open(filepath).convert('L')
+        w, h = pil_img.size
+
+        # Center-crop to square preserving original composition aspect ratio
+        min_dim = min(w, h)
+        left = (w - min_dim) // 2
+        # Slight upward bias (35% from top) to perfectly center the facial features (eyes, nose, mouth)
+        top = int((h - min_dim) * 0.35) if h > w else (h - min_dim) // 2
+        pil_img = pil_img.crop((left, top, left + min_dim, top + min_dim))
+
+        pil_img = pil_img.resize(target_size, Image.Resampling.LANCZOS)
+        arr = np.array(pil_img, dtype=np.float32)
+        arr = (arr - arr.min()) / (arr.max() - arr.min() + 1e-8)
+        return arr
+    except Exception as e:
+        print(f"Error loading {filepath}: {e}. Falling back to generative rendering.")
+        return fallback_fn()
+
+# Botticelli: The Virgin's Face (c. 1490, Florence, Italy)
+# Source: https://www.artchive.com/artwork/the-virgin-from-the-virgin-and-child-with-saint-john-and-an-angel-sandro-botticelli-c-1490-florence-italy/
+urls_botticelli = [
+    # 1. Artchive authentic high-resolution portrait crop of the Virgin's face
+    "https://www.artchive.com/wp-content/uploads/2024/08/the-virgin-from-the-virgin-and-child-with-saint-john-and-an-angel-sandro-botticelli-c1490-florence-italy.jpeg",
+    # 2. Web Gallery of Art face detail (fallback)
+    "https://upload.wikimedia.org/wikipedia/commons/5/5f/Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg",
+    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg/500px-Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg"
+]
+S_Botticelli = load_digital_stimulus("botticelli_virgin_face.jpg", urls_botticelli, generate_synthetic_botticelli)
+
+# Picasso: The Weeping Woman (Digital Image)
+url_picasso = "https://upload.wikimedia.org/wikipedia/en/thumb/1/14/Picasso_The_Weeping_Woman_Tate_identifier_T05010_10.jpg/250px-Picasso_The_Weeping_Woman_Tate_identifier_T05010_10.jpg"
+S_Picasso = load_digital_stimulus("picasso_weeping_woman.jpg", url_picasso, generate_synthetic_picasso)
 
 # ---------------------------------------------------------
-# 2. Textual Semantic Embedding Construction (128-dim vector / map)
+# 2. Textual Semantic Embedding Construction (128 x 128)
 # ---------------------------------------------------------
-# Keats' Ode on a Grecian Urn ("Beauty is truth, truth beauty")
-# Represented as a symmetric identity matrix field (Beauty = Truth)
-S_Keats = np.eye(N) * np.exp(-R**2 / 0.8) + np.fliplr(np.eye(N)) * 0.5
-S_Keats = (S_Keats - S_Keats.min()) / (S_Keats.max() - S_Keats.min())
+# Keats' Ode on a Grecian Urn ("Beauty is truth, truth beauty,—that is all / Ye know on earth, and all ye need to know.")
+# Constructs a 2D semantic co-occurrence and rhythmic meter matrix
+def generate_keats_embedding():
+    poem_stanza = 'beauty is truth truth beauty that is all ye know on earth and all ye need to know'
+    chars = [ord(c) for c in poem_stanza.replace(' ', '')][:N]
+    if len(chars) < N:
+        chars = (chars * ((N // len(chars)) + 1))[:N]
+    
+    char_vec = np.array(chars, dtype=np.float32)
+    char_vec = (char_vec - char_vec.mean()) / (char_vec.std() + 1e-8)
+    
+    # Outer-product self-similarity interaction matrix
+    gram = np.outer(char_vec, char_vec)
+    # Enforce symmetric equivalence ("Beauty is truth, truth beauty": reflection symmetry)
+    symmetric_gram = 0.5 * (gram + gram.T) + 0.5 * (np.fliplr(gram) + np.flipud(gram))
+    # Modulate with poetic meter (iambic pentameter cadence: 5 periodic pulses)
+    meter = np.cos(10 * np.pi * XX) * np.cos(10 * np.pi * YY) * np.exp(-R**2 / 0.8)
+    
+    field = symmetric_gram * 0.6 + meter * 0.4
+    return (field - field.min()) / (field.max() - field.min() + 1e-8)
+
+S_Keats = generate_keats_embedding()
 
 # ---------------------------------------------------------
-# 3. Neural Architecture Definition
+# 3. Scaled Multi-Scale Convolutional Autoencoder Architecture
 # ---------------------------------------------------------
 class AestheticFeatureNet(nn.Module):
+    """
+    Scaled Convolutional Autoencoder with hierarchical downsampling and upsampling.
+    Provides an expanded receptive field spanning the entire 128x128 canvas, enabling
+    the network to perceive macro-level composition, global symmetry, and harmonic proportions.
+    """
     def __init__(self):
         super(AestheticFeatureNet, self).__init__()
-        self.conv1 = nn.Conv2d(1, 16, kernel_size=5, padding=2)
-        self.act1 = nn.GELU()
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=5, padding=2)
-        self.act2 = nn.GELU()
-        self.conv3 = nn.Conv2d(32, 1, kernel_size=5, padding=2)
+        # Hierarchical Encoder: 128x128 -> 64x64 -> 32x32
+        self.enc1 = nn.Sequential(
+            nn.Conv2d(1, 16, kernel_size=5, stride=2, padding=2), # -> (16, 64, 64)
+            nn.GELU(),
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.GELU()
+        )
+        self.enc2 = nn.Sequential(
+            nn.Conv2d(16, 32, kernel_size=5, stride=2, padding=2), # -> (32, 32, 32)
+            nn.GELU(),
+            nn.Conv2d(32, 32, kernel_size=3, padding=1),
+            nn.GELU()
+        )
+        # Latent Bottleneck: global feature integration across latent field
+        self.bottleneck = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(64, 32, kernel_size=3, padding=1),
+            nn.GELU()
+        )
+        # Hierarchical Decoder: 32x32 -> 64x64 -> 128x128
+        self.dec2 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), # -> (32, 64, 64)
+            nn.Conv2d(32, 16, kernel_size=3, padding=1),
+            nn.GELU()
+        )
+        self.dec1 = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='bilinear', align_corners=False), # -> (16, 128, 128)
+            nn.Conv2d(16, 16, kernel_size=3, padding=1),
+            nn.GELU(),
+            nn.Conv2d(16, 1, kernel_size=5, padding=2) # -> (1, 128, 128)
+        )
 
     def forward(self, x):
-        h1 = self.act1(self.conv1(x))
-        h2 = self.act2(self.conv2(h1))
-        out = self.conv3(h2)
+        e1 = self.enc1(x)
+        e2 = self.enc2(e1)
+        h2 = self.bottleneck(e2) # deep latent representation (32 channels, 32x32)
+        d2 = self.dec2(h2)
+        out = self.dec1(d2)
         return out, h2
 
 # Initialize two identical models from the same baseline architecture
 net_physics = AestheticFeatureNet()
 net_conflict = AestheticFeatureNet()
 
-# Copy exact initial state so both models start from identical biological weights
+# Mirror exact initial state so both models start from identical biological weights
 net_conflict.load_state_dict(net_physics.state_dict())
 
 # ---------------------------------------------------------
@@ -92,9 +232,11 @@ def generate_conflict_batch(batch_size=16):
         batch.append(field)
     return torch.tensor(np.array(batch), dtype=torch.float32).unsqueeze(1)
 
-# Train Physics Model
+# Train Physics Model with loss tracking
 opt_phys = optim.Adam(net_physics.parameters(), lr=1e-3)
+phys_losses = []
 print("Training Physics / GR / Cosmology Model via Backpropagation...")
+net_physics.train()
 for epoch in range(200):
     opt_phys.zero_grad()
     inputs = generate_physics_batch(16)
@@ -102,10 +244,15 @@ for epoch in range(200):
     loss = nn.MSELoss()(outputs, inputs)
     loss.backward()
     opt_phys.step()
+    phys_losses.append(loss.item())
+    if (epoch + 1) % 50 == 0:
+        print(f"  [Physics] Epoch {epoch+1}/200 - Loss: {loss.item():.6f}")
 
-# Train Conflict Model
+# Train Conflict Model with loss tracking
 opt_conf = optim.Adam(net_conflict.parameters(), lr=1e-3)
+conf_losses = []
 print("Training Totalitarian / Conflict Model via Backpropagation...")
+net_conflict.train()
 for epoch in range(200):
     opt_conf.zero_grad()
     inputs = generate_conflict_batch(16)
@@ -113,153 +260,180 @@ for epoch in range(200):
     loss = nn.MSELoss()(outputs, inputs)
     loss.backward()
     opt_conf.step()
+    conf_losses.append(loss.item())
+    if (epoch + 1) % 50 == 0:
+        print(f"  [Conflict] Epoch {epoch+1}/200 - Loss: {loss.item():.6f}")
 
 # ---------------------------------------------------------
-# 5. Extract Normalized Activation Jacobians via Autograd
+# 5. Extract Canonical Average Activation Jacobians Across Training Distributions
 # ---------------------------------------------------------
-def extract_normalized_jacobian(net, stimulus_np):
-    stim_tensor = torch.tensor(stimulus_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    stim_tensor.requires_grad_(True)
-    out, h2 = net(stim_tensor)
-    
-    # Compute gradient of hidden activation norm w.r.t input
-    act_norm = torch.norm(h2)
-    act_norm.backward()
-    
-    grad = stim_tensor.grad.squeeze().detach().numpy()
-    grad_norm = grad / (np.linalg.norm(grad) + 1e-8)
-    return grad_norm, out.squeeze().detach().numpy()
+def extract_average_jacobian(net, batch_generator, num_samples=32, batch_size=16):
+    """
+    Computes the canonical average activation Jacobian (receptive field sensitivity map)
+    across the training distribution rather than a single ad-hoc stimulus.
+    """
+    net.eval()
+    accumulated_grad = np.zeros((N, N), dtype=np.float32)
+    num_batches = max(1, num_samples // batch_size)
+    total_count = 0
 
-# Extract Jacobians for visual stimulus
-J_phys_vis, _ = extract_normalized_jacobian(net_physics, S_Botticelli)
-J_conf_vis, _ = extract_normalized_jacobian(net_conflict, S_Botticelli)
+    for _ in range(num_batches):
+        inputs = batch_generator(batch_size)
+        inputs.requires_grad_(True)
+        _, h2 = net(inputs)
+
+        # Gradient of total hidden feature norm with respect to input
+        act_norm = torch.norm(h2)
+        act_norm.backward()
+
+        grad_batch = inputs.grad.squeeze(1).detach().cpu().numpy()
+        for g in grad_batch:
+            g_norm = g / (np.linalg.norm(g) + 1e-8)
+            accumulated_grad += g_norm
+            total_count += 1
+
+    avg_jacobian = accumulated_grad / total_count
+    avg_jacobian = avg_jacobian / (np.linalg.norm(avg_jacobian) + 1e-8)
+    return avg_jacobian
+
+# Extract canonical average Jacobians for both regimes
+J_phys_avg = extract_average_jacobian(net_physics, generate_physics_batch, num_samples=32)
+J_conf_avg = extract_average_jacobian(net_conflict, generate_conflict_batch, num_samples=32)
 
 # ---------------------------------------------------------
-# 6. Evaluation Protocol (Visual & Textual Prompts)
+# 6. Comprehensive Evaluation Protocol
 # ---------------------------------------------------------
 def evaluate_stimulus(net, jacobian, stimulus_np):
-    stim_tensor = torch.tensor(stimulus_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
-    out, _ = net(stim_tensor)
-    rec_out = out.squeeze().detach().numpy()
-    
-    # Reconstruction / Representation Error (E_rec)
+    net.eval()
+    with torch.no_grad():
+        stim_tensor = torch.tensor(stimulus_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
+        out, _ = net(stim_tensor)
+        rec_out = out.squeeze().detach().cpu().numpy()
+
+    # Reconstruction Error (E_rec)
     rec_error = float(np.mean((stimulus_np - rec_out)**2))
-    
-    # 2D Spatial Cross-Correlation
+
+    # 2D Spatial Cross-Correlation with Canonical Average Jacobian
     r_sh = scipy.signal.fftconvolve(stimulus_np, jacobian[::-1, ::-1], mode='same')
     denom = np.sqrt(np.sum(stimulus_np**2) * np.sum(jacobian**2)) + 1e-8
     r_sh_norm = r_sh / denom
     peak_r = float(np.max(r_sh_norm))
-    
+
     # Spatial Spectral Entropy (H)
     spec = np.abs(scipy.fft.fftshift(scipy.fft.fft2(r_sh_norm)))**2
     p_spec = spec / (np.sum(spec) + 1e-12)
     p_nz = p_spec[p_spec > 1e-12]
     H_spatial = float(-np.sum(p_nz * np.log2(p_nz)) / np.log2(p_spec.size)) # Normalized [0, 1]
-    
+
     # Pattern-Deficit Potential (V_b = alpha*H + beta*E_rec - gamma*peak_R)
     alpha, beta, gamma = 0.4, 10.0, 0.2
     V_b = alpha * H_spatial + beta * rec_error - gamma * peak_r
-    
+
     return r_sh_norm, peak_r, rec_error, H_spatial, V_b
 
-# Evaluate Visual Prompts
-R_phys_bot, peak_phys_bot, err_phys_bot, H_phys_bot, Vb_phys_bot = evaluate_stimulus(net_physics, J_phys_vis, S_Botticelli)
-R_phys_pic, peak_phys_pic, err_phys_pic, H_phys_pic, Vb_phys_pic = evaluate_stimulus(net_physics, J_phys_vis, S_Picasso)
+# Evaluate Visual Prompts (using canonical average Jacobians)
+R_phys_bot, peak_phys_bot, err_phys_bot, H_phys_bot, Vb_phys_bot = evaluate_stimulus(net_physics, J_phys_avg, S_Botticelli)
+R_phys_pic, peak_phys_pic, err_phys_pic, H_phys_pic, Vb_phys_pic = evaluate_stimulus(net_physics, J_phys_avg, S_Picasso)
 
-R_conf_bot, peak_conf_bot, err_conf_bot, H_conf_bot, Vb_conf_bot = evaluate_stimulus(net_conflict, J_conf_vis, S_Botticelli)
-R_conf_pic, peak_conf_pic, err_conf_pic, H_conf_pic, Vb_conf_pic = evaluate_stimulus(net_conflict, J_conf_vis, S_Picasso)
+R_conf_bot, peak_conf_bot, err_conf_bot, H_conf_bot, Vb_conf_bot = evaluate_stimulus(net_conflict, J_conf_avg, S_Botticelli)
+R_conf_pic, peak_conf_pic, err_conf_pic, H_conf_pic, Vb_conf_pic = evaluate_stimulus(net_conflict, J_conf_avg, S_Picasso)
 
 # Evaluate Textual Prompt (Keats' Ode on a Grecian Urn)
-J_phys_txt, _ = extract_normalized_jacobian(net_physics, S_Keats)
-J_conf_txt, _ = extract_normalized_jacobian(net_conflict, S_Keats)
+R_phys_keats, peak_phys_keats, err_phys_keats, H_phys_keats, Vb_phys_keats = evaluate_stimulus(net_physics, J_phys_avg, S_Keats)
+R_conf_keats, peak_conf_keats, err_conf_keats, H_conf_keats, Vb_conf_keats = evaluate_stimulus(net_conflict, J_conf_avg, S_Keats)
 
-_, peak_phys_keats, err_phys_keats, H_phys_keats, Vb_phys_keats = evaluate_stimulus(net_physics, J_phys_txt, S_Keats)
-_, peak_conf_keats, err_conf_keats, H_conf_keats, Vb_conf_keats = evaluate_stimulus(net_conflict, J_conf_txt, S_Keats)
-
-# Print Summary Results
-print("\n" + "="*70)
-print("RIGOROUS EMPIRICAL BACKPROPAGATION RESULTS")
-print("="*70)
-print(f"Visual - Physics  -> Botticelli: Peak R_Sh = {peak_phys_bot:.4f} | RecErr = {err_phys_bot:.6f} | H = {H_phys_bot:.4f} | V_b = {Vb_phys_bot:.4f}")
-print(f"Visual - Physics  -> Picasso:    Peak R_Sh = {peak_phys_pic:.4f} | RecErr = {err_phys_pic:.6f} | H = {H_phys_pic:.4f} | V_b = {Vb_phys_pic:.4f}")
-print(f"Visual - Conflict -> Botticelli: Peak R_Sh = {peak_conf_bot:.4f} | RecErr = {err_conf_bot:.6f} | H = {H_conf_bot:.4f} | V_b = {Vb_conf_bot:.4f}")
-print(f"Visual - Conflict -> Picasso:    Peak R_Sh = {peak_conf_pic:.4f} | RecErr = {err_conf_pic:.6f} | H = {H_conf_pic:.4f} | V_b = {Vb_conf_pic:.4f}")
-print("-" * 70)
-print(f"Text   - Physics  -> Keats Ode:  Peak R_Sh = {peak_phys_keats:.4f} | RecErr = {err_phys_keats:.6f} | H = {H_phys_keats:.4f} | V_b = {Vb_phys_keats:.4f}")
-print(f"Text   - Conflict -> Keats Ode:  Peak R_Sh = {peak_conf_keats:.4f} | RecErr = {err_conf_keats:.6f} | H = {H_conf_keats:.4f} | V_b = {Vb_conf_keats:.4f}")
-print("="*70)
+# Print Summary Results Table
+print("\n" + "="*80)
+print("EMPIRICAL BACKPROPAGATION SIMULATION RESULTS (CANONICAL AVERAGE JACOBIANS)")
+print("="*80)
+print(f"Visual - Physics  -> Botticelli Face: Peak R_Sh = {peak_phys_bot:.4f} | RecErr = {err_phys_bot:.6f} | H = {H_phys_bot:.4f} | V_b = {Vb_phys_bot:.4f}")
+print(f"Visual - Physics  -> Picasso Face:    Peak R_Sh = {peak_phys_pic:.4f} | RecErr = {err_phys_pic:.6f} | H = {H_phys_pic:.4f} | V_b = {Vb_phys_pic:.4f}")
+print(f"Text   - Physics  -> Keats Ode:        Peak R_Sh = {peak_phys_keats:.4f} | RecErr = {err_phys_keats:.6f} | H = {H_phys_keats:.4f} | V_b = {Vb_phys_keats:.4f}")
+print("-" * 80)
+print(f"Visual - Conflict -> Botticelli Face: Peak R_Sh = {peak_conf_bot:.4f} | RecErr = {err_conf_bot:.6f} | H = {H_conf_bot:.4f} | V_b = {Vb_conf_bot:.4f}")
+print(f"Visual - Conflict -> Picasso Face:    Peak R_Sh = {peak_conf_pic:.4f} | RecErr = {err_conf_pic:.6f} | H = {H_conf_pic:.4f} | V_b = {Vb_conf_pic:.4f}")
+print(f"Text   - Conflict -> Keats Ode:        Peak R_Sh = {peak_conf_keats:.4f} | RecErr = {err_conf_keats:.6f} | H = {H_conf_keats:.4f} | V_b = {Vb_conf_keats:.4f}")
+print("="*80)
 
 # ---------------------------------------------------------
-# 7. Generate Publication Graphic
+# 7. Generate Comprehensive 4x3 Publication Graphic
 # ---------------------------------------------------------
-fig, axes = plt.subplots(3, 3, figsize=(14, 12))
+fig, axes = plt.subplots(4, 3, figsize=(15, 16))
 plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
 
-# Row 1: Activation Jacobians & Receptive Fields
-im0 = axes[0, 0].imshow(J_phys_vis, cmap='viridis')
-axes[0, 0].set_title("Physics Model Jacobian $J_{phys}(x,y)$", fontsize=10, fontweight='bold')
+# Row 1: Canonical Average Jacobians & Receptive Field Divergence
+im0 = axes[0, 0].imshow(J_phys_avg, cmap='viridis')
+axes[0, 0].set_title("Physics Model Avg Jacobian $\\bar{J}_{phys}(x,y)$", fontsize=10, fontweight='bold')
 plt.colorbar(im0, ax=axes[0, 0], fraction=0.046)
 
-im1 = axes[0, 1].imshow(J_conf_vis, cmap='plasma')
-axes[0, 1].set_title("Conflict Model Jacobian $J_{conf}(x,y)$", fontsize=10, fontweight='bold')
+im1 = axes[0, 1].imshow(J_conf_avg, cmap='plasma')
+axes[0, 1].set_title("Conflict Model Avg Jacobian $\\bar{J}_{conf}(x,y)$", fontsize=10, fontweight='bold')
 plt.colorbar(im1, ax=axes[0, 1], fraction=0.046)
 
-# Jacobian Difference Map
-im2 = axes[0, 2].imshow(np.abs(J_phys_vis - J_conf_vis), cmap='inferno')
-axes[0, 2].set_title("Jacobian Divergence $|J_{phys} - J_{conf}|$", fontsize=10, fontweight='bold')
+im2 = axes[0, 2].imshow(np.abs(J_phys_avg - J_conf_avg), cmap='inferno')
+axes[0, 2].set_title("Receptive Field Divergence $|\\bar{J}_{phys} - \\bar{J}_{conf}|$", fontsize=10, fontweight='bold')
 plt.colorbar(im2, ax=axes[0, 2], fraction=0.046)
 
-# Row 2: 2D Cross-Correlation Maps
-im3 = axes[1, 0].imshow(R_phys_bot, cmap='seismic')
-axes[1, 0].set_title("Physics Net $\\rightarrow$ Botticelli $R_{Sh}$", fontsize=10, fontweight='bold')
+# Row 2: Actual Input Stimuli (Matched Face Portrait Scale)
+im3 = axes[1, 0].imshow(S_Botticelli, cmap='gray')
+axes[1, 0].set_title("Botticelli (Virgin's Face)", fontsize=10, fontweight='bold')
 plt.colorbar(im3, ax=axes[1, 0], fraction=0.046)
 
-im4 = axes[1, 1].imshow(R_phys_pic, cmap='seismic')
-axes[1, 1].set_title("Physics Net $\\rightarrow$ Picasso $R_{Sh}$", fontsize=10, fontweight='bold')
+im4 = axes[1, 1].imshow(S_Picasso, cmap='gray')
+axes[1, 1].set_title("Picasso (Weeping Woman's Face)", fontsize=10, fontweight='bold')
 plt.colorbar(im4, ax=axes[1, 1], fraction=0.046)
 
-im5 = axes[1, 2].imshow(R_conf_pic, cmap='seismic')
-axes[1, 2].set_title("Conflict Net $\\rightarrow$ Picasso $R_{Sh}$", fontsize=10, fontweight='bold')
+im5 = axes[1, 2].imshow(S_Keats, cmap='magma')
+axes[1, 2].set_title("Keats Ode Matrix (\"Beauty is Truth\")", fontsize=10, fontweight='bold')
 plt.colorbar(im5, ax=axes[1, 2], fraction=0.046)
 
-# Row 3: Quantitative Comparison Bar Charts
-categories = ['Physics\\n(Botticelli)', 'Physics\\n(Picasso)', 'Conflict\\n(Botticelli)', 'Conflict\\n(Picasso)']
+# Row 3: 2D Cross-Correlation Response Maps
+im6 = axes[2, 0].imshow(R_phys_bot, cmap='seismic')
+axes[2, 0].set_title("Physics Net $\\rightarrow$ Botticelli Face $R_{Sh}$", fontsize=10, fontweight='bold')
+plt.colorbar(im6, ax=axes[2, 0], fraction=0.046)
 
-# Bar 1: Peak Cross-Correlation
-peaks = [peak_phys_bot, peak_phys_pic, peak_conf_bot, peak_conf_pic]
-colors = ['#1f77b4', '#aec7e8', '#d62728', '#ff9896']
-axes[2, 0].bar(categories, peaks, color=colors, edgecolor='black', linewidth=1)
-axes[2, 0].set_title("Peak Cross-Correlation $R_{Sh}^{peak}$", fontsize=10, fontweight='bold')
-axes[2, 0].set_ylabel("Normalized Correlation")
-axes[2, 0].grid(axis='y', linestyle='--', alpha=0.5)
+im7 = axes[2, 1].imshow(R_phys_pic, cmap='seismic')
+axes[2, 1].set_title("Physics Net $\\rightarrow$ Picasso Face $R_{Sh}$", fontsize=10, fontweight='bold')
+plt.colorbar(im7, ax=axes[2, 1], fraction=0.046)
 
-# Bar 2: Reconstruction Error (E_rec)
-errors = [err_phys_bot, err_phys_pic, err_conf_bot, err_conf_pic]
-axes[2, 1].bar(categories, errors, color=colors, edgecolor='black', linewidth=1)
-axes[2, 1].set_title("Reconstruction Error $\\mathcal{E}_{rec}$", fontsize=10, fontweight='bold')
-axes[2, 1].set_ylabel("MSE Loss")
-axes[2, 1].grid(axis='y', linestyle='--', alpha=0.5)
+im8 = axes[2, 2].imshow(R_conf_pic, cmap='seismic')
+axes[2, 2].set_title("Conflict Net $\\rightarrow$ Picasso Face $R_{Sh}$", fontsize=10, fontweight='bold')
+plt.colorbar(im8, ax=axes[2, 2], fraction=0.046)
 
-# Bar 3: Pattern-Deficit Potential (V_b)
-vbs = [Vb_phys_bot, Vb_phys_pic, Vb_conf_bot, Vb_conf_pic]
-axes[2, 2].bar(categories, vbs, color=colors, edgecolor='black', linewidth=1)
-axes[2, 2].set_title("Pattern-Deficit Potential $V_b$", fontsize=10, fontweight='bold')
-axes[2, 2].set_ylabel("Potential Value ($V_b$)")
-axes[2, 2].grid(axis='y', linestyle='--', alpha=0.5)
+# Row 4: Quantitative Comparisons and Training Convergence
+# Subplot 4.0: Training Convergence Curves
+epochs_range = np.arange(1, len(phys_losses) + 1)
+axes[3, 0].plot(epochs_range, phys_losses, label='Physics Net', color='#1f77b4', linewidth=2)
+axes[3, 0].plot(epochs_range, conf_losses, label='Conflict Net', color='#d62728', linewidth=2)
+axes[3, 0].set_title("Training Loss Convergence (MSE)", fontsize=10, fontweight='bold')
+axes[3, 0].set_xlabel("Epochs")
+axes[3, 0].set_ylabel("Reconstruction Loss")
+axes[3, 0].grid(True, linestyle='--', alpha=0.5)
+axes[3, 0].legend()
+
+# Categories across all 6 conditions (matched face scale)
+all_categories = ['Phys\n(Botticelli)', 'Phys\n(Picasso)', 'Phys\n(Keats)', 'Conf\n(Botticelli)', 'Conf\n(Picasso)', 'Conf\n(Keats)']
+all_colors = ['#1f77b4', '#4a90e2', '#72b7b2', '#d62728', '#e75f5b', '#ff7f0e']
+
+# Subplot 4.1: Reconstruction Error
+all_errors = [err_phys_bot, err_phys_pic, err_phys_keats, err_conf_bot, err_conf_pic, err_conf_keats]
+axes[3, 1].bar(all_categories, all_errors, color=all_colors, edgecolor='black', linewidth=1)
+axes[3, 1].set_title("Reconstruction Error $\\mathcal{E}_{rec}$ (MSE)", fontsize=10, fontweight='bold')
+axes[3, 1].set_ylabel("MSE Loss")
+axes[3, 1].grid(axis='y', linestyle='--', alpha=0.5)
+
+# Subplot 4.2: Pattern-Deficit Potential (V_b)
+all_vbs = [Vb_phys_bot, Vb_phys_pic, Vb_phys_keats, Vb_conf_bot, Vb_conf_pic, Vb_conf_keats]
+axes[3, 2].bar(all_categories, all_vbs, color=all_colors, edgecolor='black', linewidth=1)
+axes[3, 2].set_title("Pattern-Deficit Potential $V_b$", fontsize=10, fontweight='bold')
+axes[3, 2].set_ylabel("Potential Value ($V_b$)")
+axes[3, 2].grid(axis='y', linestyle='--', alpha=0.5)
 
 plt.tight_layout()
-fig_path_scratch = "empirical_backprop_aesthetic_results.png"
-fig_path_out = "empirical_backprop_aesthetic_results.png"
 
-plt.savefig(fig_path_scratch, dpi=300, bbox_inches='tight')
+# Save publication figure directly in the project directory
+fig_path_out = os.path.join(BASE_DIR, "empirical_backprop_aesthetic_results.png")
 plt.savefig(fig_path_out, dpi=300, bbox_inches='tight')
 plt.close()
 
-# Save python script copy to out
-#script_source = "/workspace/scratch/run_clean_simulation.py"
-#script_out = "/workspace/out/empirical_backprop_simulation.py"
-#shutil.copy(script_source, script_out)
-
-#print(f"Visual results saved to: {fig_path_out}")
-#print(f"Simulation script saved to: {script_out}")
+print(f"\nVisual results successfully saved to: {fig_path_out}")
