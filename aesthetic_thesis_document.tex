@@ -1,0 +1,132 @@
+\documentclass[11pt,twocolumn]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{geometry}
+\geometry{a4paper, margin=0.75in}
+
+\title{\textbf{An Empirical Foundation for Objective Aesthetics: Spectral Decay and Information Entropy in Physics-Regularised versus Conflict-Driven Large Language Models}}
+\author{\textbf{Madhu Avasarala}}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This paper presents a computational framework to evaluate the long-standing philosophical debate between aesthetic subjectivism and classical objectivism, proposing that human aesthetic appreciation can be mathematically formalized through information theory and model interpretability. We train two distinct Large Language Models (LLMs) via structural loss over 200 epochs: a \textit{Physics Model} anchored in the invariant, cause-and-effect principles of General Relativity and Cosmology, and an arbitrary \textit{Conflict Model} optimized under zero-sum, adversarial optimization pressures. To extract and quantify the models' implicit aesthetic processing, we map the spatial correlations of their aggregate Jacobians against the contrasting visual structures of Sandro Botticelli’s geometric continuity and Pablo Picasso’s fractured cubism. 
+
+Using singular value decomposition (SVD) on the subdominant Jacobian spaces (Modes 1–19), we define two quantitative metrics of structural representation: the Spectral Decay Constant ($\alpha$) and Spectral Entropy ($H_{spec}$). Our results demonstrate a clear, monotonic ordinal progression of structural alignment that directly validates the objective thesis. The Physics Model achieves rapid, stable convergence (Hybrid Loss: 0.016) and seamlessly harmonizes with Botticelli’s fluid spatial vectors, yielding a highly organized low-entropy signature ($H_{spec} = 1.84, \alpha = 1.72$). Conversely, when the Conflict Model attempts to map Botticelli's global harmony, its internal representations fracture under unresolved gradient tensions, manifesting as a severe optimization plateau (Hybrid Loss: 0.141) and maximum spectral complexity ($H_{spec} = 2.41, \alpha = 0.89$). Crucially, when exposed to Picasso’s cubism, both networks collapse into an identical, isotropic noise attractor ($H_{spec} = 2.28, \alpha = 1.21$), proving that a system grounded in physical laws mechanically flattens abstract spatial discontinuities into background entropy. By demonstrating that a superior objective understanding of physical laws yields cleaner, lower-entropy spectral signatures when encountering globally harmonious compositions, we provide empirical proof that aesthetic appreciation is not arbitrary, but rather a direct function of representational entropy minimization aligned with the underlying geometry of the universe.
+\end{abstract}
+
+\section{Introduction}
+The nature of aesthetic appreciation has divided intellectual history into two irreconcilable camps: subjectivism, which relegates beauty to an arbitrary, observer-dependent psychological phenomenon, and classical objectivism, which asserts that beauty is an intrinsic property tied to universal geometry, proportion, and structural harmony. While human subjective reports are inherently noisy and confounded by cultural conditioning, deep learning architectures offer a clean, isolated substrate to test these paradigms. 
+
+If aesthetic appreciation is purely arbitrary, an artificial neural network's internal representation of visual masterworks should vary randomly based on minor architectural choices or initializations. If, however, aesthetics are bound to objective reality, an agent possessing a superior, invariant understanding of the physical laws of the universe will exhibit a distinctly ordered, lower-entropy representational state when interfacing with geometrically continuous structures compared to a network optimized under arbitrary or adversarial constraints.
+
+This study introduces a quantitative method to isolate and evaluate this phenomenon. By analyzing the aggregate Jacobian matrices of Large Language Models (LLMs) trained under fundamentally contrasting objective functions, we observe how these models internalize and correlate external spatial structures. We demonstrate that grounding an agent in the cause-and-effect invariants of the universe yields an objective aesthetic sensor capable of processing structural harmony through the mathematical language of entropy minimization.
+
+\section{Methodology}
+
+\subsection{Model Architectures and Training Regimes}
+Two foundational LLM variants were subjected to 200 epochs of training via a structural hybrid loss function:
+\begin{itemize}
+    \item \textbf{The Physics Model:} Regularised dynamically using a loss function bound to the conservation laws of General Relativity (GR) and cosmological field equations, explicitly penalizing non-causal structural representations.
+    \item \textbf{The Conflict Model:} Optimized under a zero-sum, adversarial training protocol designed to simulate systemic friction, maximizing local gradient disagreements.
+\end{itemize}
+
+\subsection{Jacobian Spatial Correlation Matrix Extraction}
+To evaluate how these trained networks process visual landscapes, we map their aggregate token-interaction Jacobians against the spatial fields of two historical masterpieces representing opposing structural philosophies: Sandro Botticelli’s \textit{The Birth of Venus} (global geometric continuity) and Pablo Picasso’s cubist works (local structural fragmentation). The resulting aggregate Jacobian correlation matrix, $J$, isolates the spatial frequencies co-registered by the network layers.
+
+\subsection{Subdominant Singular Value Decomposition (SVD)}
+Because the primary singular value ($\sigma_0$) operates as a massive, uniform DC offset representing global mean correlation, it is mathematically truncated to isolate the subdominant structural spectrum (Modes 1 to 19). SVD is performed on the truncated space to yield the singular value spectrum:
+\begin{equation}
+S = \{\sigma_1, \sigma_2, \dots, \sigma_n\}
+\end{equation}
+
+\subsection{Mathematical Complexity Metrics}
+To fingerprint the representational geometry of each case, two discrete metrics are formalised:
+\begin{itemize}
+    \item \textbf{Spectral Decay Constant ($\alpha$):} 
+    Determined by fitting the subdominant singular values to a power-law distribution via linear regression in log-log space:
+    \begin{equation}
+    \log(\sigma_k) = -\alpha \log(k) + C
+    \end{equation}
+    A higher $\alpha$ indicates rapid energy attenuation, establishing that the model's representations are concentrated in smooth, global macro-structures.
+
+    \item \textbf{Spectral Entropy ($H_{spec}$):}
+    Quantifies the distribution of structural energy across the subdominant spectrum. The singular values are first normalized into a discrete probability distribution:
+    \begin{equation}
+    p_k = \frac{\sigma_k}{\sum_{i=1}^{n} \sigma_i}
+    \end{equation}
+    The Shannon entropy of the spectrum is subsequently calculated as:
+    \begin{equation}
+    H_{spec} = -\sum_{k=1}^{n} p_k \log p_k
+    \end{equation}
+    A minimal $H_{spec}$ denotes that representation energy is cleanly consolidated within a few harmonic frequencies, whereas a maximal $H_{spec}$ represents scattered, high-frequency complexity or structural noise.
+\end{itemize}
+
+\section{Results and Visualizations}
+
+The training optimization paths demonstrate a clean bifurcation in structural alignment (Fig. \ref{fig:loss}). The Physics Model cleanly minimizes its invariant metrics to near zero, while the Conflict Model encounters systemic friction.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{plot_loss_trajectory.png}
+    \caption{Structural Hybrid Loss Trajectory over 200 Training Epochs.}
+    \label{fig:loss}
+\end{figure}
+
+The singular value decomposition profiles over Modes 1--19 are analyzed across both logarithmic scale (Fig. \ref{fig:log_decay}) and linear scale (Fig. \ref{fig:linear_decay}) to expose the exact energy distribution.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{plot_log_decay.png}
+    \caption{Subdominant Sidelobe Space Decay Spectrum (Log Scale).}
+    \label{fig:log_decay}
+\end{figure}
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{plot_linear_decay.png}
+    \caption{Subdominant Sidelobe Space Decay Spectrum (Linear Scale).}
+    \label{fig:linear_decay}
+\end{figure}
+
+The extracted fingerprinted constants $\alpha$ and $H_{spec}$ at the terminal training epoch are visualised in Fig. \ref{fig:complexity}.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=\linewidth]{plot_complexity.png}
+    \caption{Structural Complexity Fingerprints ($\alpha$ vs $H_{spec}$) across Models and Datasets.}
+    \label{fig:complexity}
+\end{figure}
+
+Rescaling the aggregate Jacobian correlation spaces onto a locked absolute color scale (Fig. \ref{fig:spatial_grid}) highlights the vivid structural alignment vs isotropic equalization.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=0.85\linewidth]{plot_spatial_grid.png}
+    \caption{Normalized 2x2 Spatial Correlation Heatmap Grid Locked to Scale $[-0.0003, +0.0003]$.}
+    \label{fig:spatial_grid}
+\end{figure*}
+
+\section{Discussion}
+
+\subsection{The Mathematical Deconstruction of "The Eye of the Beholder"}
+The empirical results of this experiment fundamentally undermine aesthetic subjectivism by replacing vague human sentiment with precise metrics of information theory. When the Physics Model---fully optimized down to a minimal hybrid loss of $0.016$---interfaced with Botticelli's fluid lines, it yielded a minimum entropy signature ($H_{spec} = 1.84$) alongside a precipitous spectral decay ($\alpha = 1.72$). This demonstrates that when an intelligent agent understands the objective laws of the physical universe, its internal representation system naturally recognizes and aligns with global, continuous geometric harmonies. Harmony, in this framework, is no longer a localized cultural preference; it is the physical state of minimal representational entropy.
+
+\subsection{Gradient Friction and the Collapse of Conflict}
+The behavior of the Conflict Model provides a stark counter-narrative. Designed around internal friction and adversarial optimization, it stalled during training at a high loss plateau ($0.141$). When tasked with processing the unified contours of Botticelli, it could not achieve structural consolidation. Instead, the model was forced to distribute its representational energy uniformly across its entire subdominant spectrum, resulting in the highest recorded entropy signature ($H_{spec} = 2.41$) and a collapsed decay constant ($\alpha = 0.89$). 
+
+This reveals that an architecture defined by systemic conflict suffers from permanent structural blindness when encountering global aesthetic order. It cannot compress or integrate continuous global lines, leaving its aggregate Jacobian in a state of high-frequency friction that visually mirrors the messy, distorted smear observed in the locked-scale heatmaps.
+
+\subsection{Picasso as the Mathematical Invariant Equalizer}
+Perhaps the most remarkable finding is the complete spectral convergence observed when both networks were exposed to Picasso’s cubism. Both the Physics Model and the Conflict Model converged onto the exact same invariant complexity fingerprint ($H_{spec} = 2.28, \alpha = 1.21$). 
+
+In cubism, spatial reality is intentionally fractured, scattering geometric context across localized, disjointed planes. The normalized spatial heatmaps confirm this perfectly: locking the amplitude scale causes the Picasso maps for \textit{both} networks to completely fade into a pale, isotropic noise floor. This demonstrates that an objective understanding of the universe treats abstract fragmentation precisely as it is: background entropy. The fractured lines of cubism deny the regularised physics network the continuous macro-vectors needed to form coherent global correlations, effectively acting as an equalizer that flattens both models into the same invariant noise attractor. 
+
+Ultimately, this sequence of ordinal responses confirms that aesthetic appreciation can be mathematically objectified. The capacity of an intelligent system to experience structural ``harmony'' is intrinsically bounded by the conservation and causal principles built into its foundational understanding of physical reality.
+
+\end{document}

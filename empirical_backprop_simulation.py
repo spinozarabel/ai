@@ -501,3 +501,65 @@ plt.savefig(fig_path_out, dpi=300, bbox_inches='tight')
 plt.close()
 
 print(f"\nVisual results successfully saved to: {fig_path_out}")
+
+import numpy as np
+import scipy.linalg as la
+import matplotlib.pyplot as plt
+import os
+
+def extract_log_correlation_eigenmodes(R_matrix):
+    """
+    Performs SVD and prepares data for log-domain inspection of sidelobes.
+    """
+    U, S, Vt = la.svd(R_matrix, full_matrices=False)
+    
+    # 1. Normalized singular values for the spectrum
+    energy_spectrum = S / np.sum(S) 
+    
+    # 2. Compute log-compressed version of the full correlation surface 
+    # Adding a small epsilon prevents log(0) issues
+    eps = 1e-10
+    R_log = np.log10(np.abs(R_matrix) + eps)
+    
+    return U, energy_spectrum, Vt, R_log
+
+evaluation_runs = {
+    "Physics Net × Botticelli": R_phys_bot,
+    "Physics Net × Picasso": R_phys_pic,
+    "Conflict Net × Botticelli": R_conf_bot,
+    "Conflict Net × Picasso": R_conf_pic
+}
+
+fig, axs = plt.subplots(4, 3, figsize=(15, 18))
+
+for idx, (label, R_matrix) in enumerate(evaluation_runs.items()):
+    U, energy, Vt, R_log = extract_log_correlation_eigenmodes(R_matrix)
+    
+    # Column 1: Logarithmic Energy Spectrum Decay
+    axs[idx, 0].plot(np.arange(len(energy[:20])), energy[:20], 'o-', color='indigo', linewidth=2)
+    axs[idx, 0].set_yscale('log') # Forces logarithmic scaling on the Y-axis
+    axs[idx, 0].set_title(f"{label}\nLog Singular Value Decay")
+    axs[idx, 0].set_xlabel("Mode Index")
+    axs[idx, 0].set_ylabel("Relative Amplitude (Log Scale)")
+    axs[idx, 0].grid(True, which="both", linestyle='--', alpha=0.5)
+    
+    # Column 2: Log-Compressed 2D Correlation Surface (Amplifies Sidelobes)
+    im1 = axs[idx, 1].imshow(R_log, cmap='viridis', origin='lower')
+    axs[idx, 1].set_title("Full Surface: log10(|R_sh|)")
+    fig.colorbar(im1, ax=axs[idx, 1], fraction=0.046, pad=0.04)
+    
+    # Column 3: Reconstructed Sidelobe Mode (Combines Subdominant Modes 2 through 5)
+    # Stripping out the dominant Mode 0 lets us look directly at the hidden structures
+    sidelobe_reconstruction = np.zeros_like(R_matrix)
+    for m in range(1, 5):
+        sidelobe_reconstruction += energy[m] * np.outer(U[:, m], Vt[m, :])
+        
+    im2 = axs[idx, 2].imshow(sidelobe_reconstruction, cmap='coolwarm', origin='lower')
+    axs[idx, 2].set_title("Subdominant Sidelobe Space (Modes 2-5)")
+    fig.colorbar(im2, ax=axs[idx, 2], fraction=0.046, pad=0.04)
+
+plt.tight_layout()
+output_path = os.path.join(BASE_DIR, "art_llm_log_sidelobes.png")
+plt.savefig(output_path, dpi=300)
+print(f"Log-domain visualization complete: {output_path}")
+
