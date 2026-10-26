@@ -1,3 +1,4 @@
 ai_env/
 __pycache__/
 *.pyc
+*.png
