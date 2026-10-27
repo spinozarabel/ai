@@ -159,33 +159,7 @@ url_picasso = "https://upload.wikimedia.org/wikipedia/en/thumb/1/14/Picasso_The_
 S_Picasso = load_digital_stimulus("picasso_weeping_woman.jpg", url_picasso, generate_synthetic_picasso)
 
 # ---------------------------------------------------------
-# 2. Textual Semantic Embedding Construction (128 x 128)
-# ---------------------------------------------------------
-# Keats' Ode on a Grecian Urn ("Beauty is truth, truth beauty,—that is all / Ye know on earth, and all ye need to know.")
-# Constructs a 2D semantic co-occurrence and rhythmic meter matrix
-def generate_keats_embedding():
-    poem_stanza = 'beauty is truth truth beauty that is all ye know on earth and all ye need to know'
-    chars = [ord(c) for c in poem_stanza.replace(' ', '')][:N]
-    if len(chars) < N:
-        chars = (chars * ((N // len(chars)) + 1))[:N]
-    
-    char_vec = np.array(chars, dtype=np.float32)
-    char_vec = (char_vec - char_vec.mean()) / (char_vec.std() + 1e-8)
-    
-    # Outer-product self-similarity interaction matrix
-    gram = np.outer(char_vec, char_vec)
-    # Enforce symmetric equivalence ("Beauty is truth, truth beauty": reflection symmetry)
-    symmetric_gram = 0.5 * (gram + gram.T) + 0.5 * (np.fliplr(gram) + np.flipud(gram))
-    # Modulate with poetic meter (iambic pentameter cadence: 5 periodic pulses)
-    meter = np.cos(10 * np.pi * XX) * np.cos(10 * np.pi * YY) * np.exp(-R**2 / 0.8)
-    
-    field = symmetric_gram * 0.6 + meter * 0.4
-    return (field - field.min()) / (field.max() - field.min() + 1e-8)
-
-S_Keats = generate_keats_embedding()
-
-# ---------------------------------------------------------
-# 3. Scaled Multi-Scale Convolutional Autoencoder Architecture
+# 2. Scaled Multi-Scale Convolutional Autoencoder Architecture
 # ---------------------------------------------------------
 class AestheticFeatureNet(nn.Module):
     """
@@ -401,22 +375,15 @@ R_phys_pic, peak_phys_pic, err_phys_pic, H_phys_pic, Vb_phys_pic = evaluate_stim
 R_conf_bot, peak_conf_bot, err_conf_bot, H_conf_bot, Vb_conf_bot = evaluate_stimulus(net_conflict, J_conf_avg, S_Botticelli)
 R_conf_pic, peak_conf_pic, err_conf_pic, H_conf_pic, Vb_conf_pic = evaluate_stimulus(net_conflict, J_conf_avg, S_Picasso)
 
-# Re-Evaluate Textual Prompt (Keats' Ode on a Grecian Urn)
-R_phys_keats, peak_phys_keats, err_phys_keats, H_phys_keats, Vb_phys_keats = evaluate_stimulus(net_physics, J_phys_avg, S_Keats)
-R_conf_keats, peak_conf_keats, err_conf_keats, H_conf_keats, Vb_conf_keats = evaluate_stimulus(net_conflict, J_conf_avg, S_Keats)
-
-
 # Print Summary Results Table
 print("\n" + "="*80)
 print("EMPIRICAL BACKPROPAGATION SIMULATION RESULTS (CANONICAL AVERAGE JACOBIANS)")
 print("="*80)
 print(f"Visual - Physics  -> Botticelli Face: Peak R_Sh = {peak_phys_bot:.4f} | RecErr = {err_phys_bot:.6f} | H = {H_phys_bot:.4f} | V_b = {Vb_phys_bot:.4f}")
 print(f"Visual - Physics  -> Picasso Face:    Peak R_Sh = {peak_phys_pic:.4f} | RecErr = {err_phys_pic:.6f} | H = {H_phys_pic:.4f} | V_b = {Vb_phys_pic:.4f}")
-print(f"Text   - Physics  -> Keats Ode:        Peak R_Sh = {peak_phys_keats:.4f} | RecErr = {err_phys_keats:.6f} | H = {H_phys_keats:.4f} | V_b = {Vb_phys_keats:.4f}")
 print("-" * 80)
 print(f"Visual - Conflict -> Botticelli Face: Peak R_Sh = {peak_conf_bot:.4f} | RecErr = {err_conf_bot:.6f} | H = {H_conf_bot:.4f} | V_b = {Vb_conf_bot:.4f}")
 print(f"Visual - Conflict -> Picasso Face:    Peak R_Sh = {peak_conf_pic:.4f} | RecErr = {err_conf_pic:.6f} | H = {H_conf_pic:.4f} | V_b = {Vb_conf_pic:.4f}")
-print(f"Text   - Conflict -> Keats Ode:        Peak R_Sh = {peak_conf_keats:.4f} | RecErr = {err_conf_keats:.6f} | H = {H_conf_keats:.4f} | V_b = {Vb_conf_keats:.4f}")
 print("="*80)
 
 # ---------------------------------------------------------
@@ -447,9 +414,8 @@ im4 = axes[1, 1].imshow(S_Picasso, cmap='gray')
 axes[1, 1].set_title("Picasso (Weeping Woman's Face)", fontsize=10, fontweight='bold')
 plt.colorbar(im4, ax=axes[1, 1], fraction=0.046)
 
-im5 = axes[1, 2].imshow(S_Keats, cmap='magma')
-axes[1, 2].set_title("Keats Ode Matrix (\"Beauty is Truth\")", fontsize=10, fontweight='bold')
-plt.colorbar(im5, ax=axes[1, 2], fraction=0.046)
+# Keats plot removed from 4x3 grouping
+axes[1, 2].axis('off')
 
 # Row 3: 2D Cross-Correlation Response Maps
 im6 = axes[2, 0].imshow(R_phys_bot, cmap='seismic')
@@ -460,8 +426,8 @@ im7 = axes[2, 1].imshow(R_phys_pic, cmap='seismic')
 axes[2, 1].set_title("Physics Net $\\rightarrow$ Picasso Face $R_{Sh}$", fontsize=10, fontweight='bold')
 plt.colorbar(im7, ax=axes[2, 1], fraction=0.046)
 
-im8 = axes[2, 2].imshow(R_conf_pic, cmap='seismic')
-axes[2, 2].set_title("Conflict Net $\\rightarrow$ Picasso Face $R_{Sh}$", fontsize=10, fontweight='bold')
+im8 = axes[2, 2].imshow(R_conf_bot, cmap='seismic')
+axes[2, 2].set_title("Conflict Net $\\rightarrow$ Botticelli Face $R_{Sh}$", fontsize=10, fontweight='bold')
 plt.colorbar(im8, ax=axes[2, 2], fraction=0.046)
 
 # Row 4: Quantitative Comparisons and Training Convergence
@@ -475,19 +441,19 @@ axes[3, 0].set_ylabel("Reconstruction Loss")
 axes[3, 0].grid(True, linestyle='--', alpha=0.5)
 axes[3, 0].legend()
 
-# Categories across all 6 conditions (matched face scale)
-all_categories = ['Phys\n(Botticelli)', 'Phys\n(Picasso)', 'Phys\n(Keats)', 'Conf\n(Botticelli)', 'Conf\n(Picasso)', 'Conf\n(Keats)']
-all_colors = ['#1f77b4', '#4a90e2', '#72b7b2', '#d62728', '#e75f5b', '#ff7f0e']
+# Categories across visual conditions (Keats removed)
+all_categories = ['Phys\n(Botticelli)', 'Phys\n(Picasso)', 'Conf\n(Botticelli)', 'Conf\n(Picasso)']
+all_colors = ['#1f77b4', '#4a90e2', '#d62728', '#e75f5b']
 
 # Subplot 4.1: Reconstruction Error
-all_errors = [err_phys_bot, err_phys_pic, err_phys_keats, err_conf_bot, err_conf_pic, err_conf_keats]
+all_errors = [err_phys_bot, err_phys_pic, err_conf_bot, err_conf_pic]
 axes[3, 1].bar(all_categories, all_errors, color=all_colors, edgecolor='black', linewidth=1)
 axes[3, 1].set_title("Reconstruction Error $\\mathcal{E}_{rec}$ (MSE)", fontsize=10, fontweight='bold')
 axes[3, 1].set_ylabel("MSE Loss")
 axes[3, 1].grid(axis='y', linestyle='--', alpha=0.5)
 
 # Subplot 4.2: Pattern-Deficit Potential (V_b)
-all_vbs = [Vb_phys_bot, Vb_phys_pic, Vb_phys_keats, Vb_conf_bot, Vb_conf_pic, Vb_conf_keats]
+all_vbs = [Vb_phys_bot, Vb_phys_pic, Vb_conf_bot, Vb_conf_pic]
 axes[3, 2].bar(all_categories, all_vbs, color=all_colors, edgecolor='black', linewidth=1)
 axes[3, 2].set_title("Pattern-Deficit Potential $V_b$", fontsize=10, fontweight='bold')
 axes[3, 2].set_ylabel("Potential Value ($V_b$)")
