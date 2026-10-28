@@ -330,7 +330,11 @@ J_conf_avg = extract_average_jacobian(net_conflict, generate_conflict_batch, num
 # ---------------------------------------------------------
 # 6. Balanced & Standardized Evaluation Protocol
 # ---------------------------------------------------------
-def evaluate_stimulus(net, jacobian, stimulus_np):
+def evaluate_stimulus_spectral(net, jacobian, stimulus_np):
+    """
+    Decomposes the cross-correlation surface using SVD to track 
+    un-normalized log spectral power decay across all modes.
+    """
     net.eval()
     with torch.no_grad():
         stim_tensor = torch.tensor(stimulus_np, dtype=torch.float32).unsqueeze(0).unsqueeze(0)
@@ -340,185 +344,73 @@ def evaluate_stimulus(net, jacobian, stimulus_np):
     # 1. Reconstruction Error (E_rec)
     rec_error = float(np.mean((stimulus_np - rec_out)**2))
     
-    # 2. 2D Spatial Cross-Correlation Map
+    # 2. Compute 2D Spatial Cross-Correlation Map
     r_sh = scipy.signal.fftconvolve(stimulus_np, jacobian[::-1, ::-1], mode='same')
     denom = np.sqrt(np.sum(stimulus_np**2) * np.sum(jacobian**2)) + 1e-8
     r_sh_norm = r_sh / denom
     
-    # FIX C: Z-Score Standardize Cross-Correlation to isolate structural shape alignment
-    r_sh_centered = r_sh_norm - np.mean(r_sh_norm)
-    peak_r = float(np.max(r_sh_centered) / (np.std(r_sh_centered) + 1e-8))
+    # 3. PERFORM SVD EXTRACTING LOG DECAY MODES
+    # We do NOT normalize S here by np.sum(S) to maintain absolute magnitude comparisons
+    U, S, Vt = la.svd(r_sh_norm, full_matrices=False)
     
-    # 3. Spatial Spectral Entropy (H)
+    # 4. Spatial Spectral Entropy (H)
     spec = np.abs(scipy.fft.fftshift(scipy.fft.fft2(r_sh_norm)))**2
     p_spec = spec / (np.sum(spec) + 1e-12)
     p_nz = p_spec[p_spec > 1e-12]
     H_spatial = float(-np.sum(p_nz * np.log2(p_nz)) / np.log2(p_spec.size))
     
-    # FIX B: Balanced Metric Tuning
-    # Calibrated to balance the dynamic ranges of H_spatial, rec_error, and peak_r
+    # 5. Extract structural peak alignment from centered cross-correlation
+    r_sh_centered = r_sh_norm - np.mean(r_sh_norm)
+    peak_r = float(np.max(r_sh_centered) / (np.std(r_sh_centered) + 1e-8))
+    
+    # 6. Balanced Metric Tuning
     alpha, beta, gamma = 0.5, 2.0, 0.05
     V_b = alpha * H_spatial + beta * rec_error - gamma * peak_r
     
-    return r_sh_norm, peak_r, rec_error, H_spatial, V_b
+    # S contains the actual singular values (relative amplitudes) for all modes including DC
+    return r_sh_norm, S, peak_r, rec_error, H_spatial, V_b
 
-# Re-Evaluate Visual Prompts using the standardized structural protocol
-R_phys_bot, peak_phys_bot, err_phys_bot, H_phys_bot, Vb_phys_bot = evaluate_stimulus(net_physics, J_phys_avg, S_Botticelli)
-R_phys_pic, peak_phys_pic, err_phys_pic, H_phys_pic, Vb_phys_pic = evaluate_stimulus(net_physics, J_phys_avg, S_Picasso)
-R_conf_bot, peak_conf_bot, err_conf_bot, H_conf_bot, Vb_conf_bot = evaluate_stimulus(net_conflict, J_conf_avg, S_Botticelli)
-R_conf_pic, peak_conf_pic, err_conf_pic, H_conf_pic, Vb_conf_pic = evaluate_stimulus(net_conflict, J_conf_avg, S_Picasso)
+# --- Re-Evaluate Visual Prompts with Spectral Extraction ---
+R_p_bot, S_p_bot, peak_p_bot, err_p_bot, H_p_bot, Vb_p_bot = evaluate_stimulus_spectral(net_physics, J_phys_avg, S_Botticelli)
+R_p_pic, S_p_pic, peak_p_pic, err_p_pic, H_p_pic, Vb_p_pic = evaluate_stimulus_spectral(net_physics, J_phys_avg, S_Picasso)
+R_c_bot, S_c_bot, peak_c_bot, err_c_bot, H_c_bot, Vb_c_bot = evaluate_stimulus_spectral(net_conflict, J_conf_avg, S_Botticelli)
+R_c_pic, S_c_pic, peak_c_pic, err_c_pic, H_c_pic, Vb_c_pic = evaluate_stimulus_spectral(net_conflict, J_conf_avg, S_Picasso)
 
-# Print Summary Results Table
-print("\n" + "="*80)
-print("EMPIRICAL BACKPROPAGATION SIMULATION RESULTS (CANONICAL AVERAGE JACOBIANS)")
-print("="*80)
-print(f"Visual - Physics  -> Botticelli Face: Peak R_Sh = {peak_phys_bot:.4f} | RecErr = {err_phys_bot:.6f} | H = {H_phys_bot:.4f} | V_b = {Vb_phys_bot:.4f}")
-print(f"Visual - Physics  -> Picasso Face:    Peak R_Sh = {peak_phys_pic:.4f} | RecErr = {err_phys_pic:.6f} | H = {H_phys_pic:.4f} | V_b = {Vb_phys_pic:.4f}")
-print("-" * 80)
-print(f"Visual - Conflict -> Botticelli Face: Peak R_Sh = {peak_conf_bot:.4f} | RecErr = {err_conf_bot:.6f} | H = {H_conf_bot:.4f} | V_b = {Vb_conf_bot:.4f}")
-print(f"Visual - Conflict -> Picasso Face:    Peak R_Sh = {peak_conf_pic:.4f} | RecErr = {err_conf_pic:.6f} | H = {H_conf_pic:.4f} | V_b = {Vb_conf_pic:.4f}")
-print("="*80)
-
-# ---------------------------------------------------------
-# 7. Generate Comprehensive 4x3 Publication Graphic
-# ---------------------------------------------------------
-fig, axes = plt.subplots(4, 3, figsize=(15, 16))
-plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
-
-# Row 1: Canonical Average Jacobians & Receptive Field Divergence
-im0 = axes[0, 0].imshow(J_phys_avg, cmap='viridis')
-axes[0, 0].set_title("Physics Model Avg Jacobian $\\bar{J}_{phys}(x,y)$", fontsize=10, fontweight='bold')
-plt.colorbar(im0, ax=axes[0, 0], fraction=0.046)
-
-im1 = axes[0, 1].imshow(J_conf_avg, cmap='plasma')
-axes[0, 1].set_title("Conflict Model Avg Jacobian $\\bar{J}_{conf}(x,y)$", fontsize=10, fontweight='bold')
-plt.colorbar(im1, ax=axes[0, 1], fraction=0.046)
-
-im2 = axes[0, 2].imshow(np.abs(J_phys_avg - J_conf_avg), cmap='inferno')
-axes[0, 2].set_title("Receptive Field Divergence $|\\bar{J}_{phys} - \\bar{J}_{conf}|$", fontsize=10, fontweight='bold')
-plt.colorbar(im2, ax=axes[0, 2], fraction=0.046)
-
-# Row 2: Actual Input Stimuli (Matched Face Portrait Scale)
-im3 = axes[1, 0].imshow(S_Botticelli, cmap='gray')
-axes[1, 0].set_title("Botticelli (Virgin's Face)", fontsize=10, fontweight='bold')
-plt.colorbar(im3, ax=axes[1, 0], fraction=0.046)
-
-im4 = axes[1, 1].imshow(S_Picasso, cmap='gray')
-axes[1, 1].set_title("Picasso (Weeping Woman's Face)", fontsize=10, fontweight='bold')
-plt.colorbar(im4, ax=axes[1, 1], fraction=0.046)
-
-# Keats plot removed from 4x3 grouping
-axes[1, 2].axis('off')
-
-# Row 3: 2D Cross-Correlation Response Maps
-im6 = axes[2, 0].imshow(R_phys_bot, cmap='seismic')
-axes[2, 0].set_title("Physics Net $\\rightarrow$ Botticelli Face $R_{Sh}$", fontsize=10, fontweight='bold')
-plt.colorbar(im6, ax=axes[2, 0], fraction=0.046)
-
-im7 = axes[2, 1].imshow(R_phys_pic, cmap='seismic')
-axes[2, 1].set_title("Physics Net $\\rightarrow$ Picasso Face $R_{Sh}$", fontsize=10, fontweight='bold')
-plt.colorbar(im7, ax=axes[2, 1], fraction=0.046)
-
-im8 = axes[2, 2].imshow(R_conf_bot, cmap='seismic')
-axes[2, 2].set_title("Conflict Net $\\rightarrow$ Botticelli Face $R_{Sh}$", fontsize=10, fontweight='bold')
-plt.colorbar(im8, ax=axes[2, 2], fraction=0.046)
-
-# Row 4: Quantitative Comparisons and Training Convergence
-# Subplot 4.0: Training Convergence Curves
-epochs_range = np.arange(1, len(phys_losses) + 1)
-axes[3, 0].plot(epochs_range, phys_losses, label='Physics Net', color='#1f77b4', linewidth=2)
-axes[3, 0].plot(epochs_range, conf_losses, label='Conflict Net', color='#d62728', linewidth=2)
-axes[3, 0].set_title("Training Loss Convergence (MSE)", fontsize=10, fontweight='bold')
-axes[3, 0].set_xlabel("Epochs")
-axes[3, 0].set_ylabel("Reconstruction Loss")
-axes[3, 0].grid(True, linestyle='--', alpha=0.5)
-axes[3, 0].legend()
-
-# Categories across visual conditions (Keats removed)
-all_categories = ['Phys\n(Botticelli)', 'Phys\n(Picasso)', 'Conf\n(Botticelli)', 'Conf\n(Picasso)']
-all_colors = ['#1f77b4', '#4a90e2', '#d62728', '#e75f5b']
-
-# Subplot 4.1: Reconstruction Error
-all_errors = [err_phys_bot, err_phys_pic, err_conf_bot, err_conf_pic]
-axes[3, 1].bar(all_categories, all_errors, color=all_colors, edgecolor='black', linewidth=1)
-axes[3, 1].set_title("Reconstruction Error $\\mathcal{E}_{rec}$ (MSE)", fontsize=10, fontweight='bold')
-axes[3, 1].set_ylabel("MSE Loss")
-axes[3, 1].grid(axis='y', linestyle='--', alpha=0.5)
-
-# Subplot 4.2: Pattern-Deficit Potential (V_b)
-all_vbs = [Vb_phys_bot, Vb_phys_pic, Vb_conf_bot, Vb_conf_pic]
-axes[3, 2].bar(all_categories, all_vbs, color=all_colors, edgecolor='black', linewidth=1)
-axes[3, 2].set_title("Pattern-Deficit Potential $V_b$", fontsize=10, fontweight='bold')
-axes[3, 2].set_ylabel("Potential Value ($V_b$)")
-axes[3, 2].grid(axis='y', linestyle='--', alpha=0.5)
-
-plt.tight_layout()
-
-# Save publication figure directly in the project directory
-fig_path_out = os.path.join(BASE_DIR, "empirical_backprop_aesthetic_results.png")
-plt.savefig(fig_path_out, dpi=300, bbox_inches='tight')
-plt.close()
-
-print(f"\nVisual results successfully saved to: {fig_path_out}")
-
-import numpy as np
-import scipy.linalg as la
-import matplotlib.pyplot as plt
-import os
-
-def extract_log_correlation_eigenmodes(R_matrix):
-    """
-    Performs SVD and prepares data for log-domain inspection of sidelobes.
-    """
-    U, S, Vt = la.svd(R_matrix, full_matrices=False)
-    
-    # 1. Normalized singular values for the spectrum
-    energy_spectrum = S / np.sum(S) 
-    
-    # 2. Compute log-compressed version of the full correlation surface 
-    # Adding a small epsilon prevents log(0) issues
-    eps = 1e-10
-    R_log = np.log10(np.abs(R_matrix) + eps)
-    
-    return U, energy_spectrum, Vt, R_log
-
-evaluation_runs = {
-    "Physics Net × Botticelli": R_phys_bot,
-    "Physics Net × Picasso": R_phys_pic,
-    "Conflict Net × Botticelli": R_conf_bot,
-    "Conflict Net × Picasso": R_conf_pic
+# --- Store the exact evaluation arrays for the final comparison graphic ---
+saved_singular_values = {
+    "Physics Net x Botticelli": S_p_bot[:20],
+    "Physics Net x Picasso":    S_p_pic[:20],
+    "Conflict Net x Botticelli": S_c_bot[:20],
+    "Conflict Net x Picasso":    S_c_pic[:20]
 }
 
-fig, axs = plt.subplots(4, 3, figsize=(15, 18))
+# -------------------------------------------------------------
+# Standalone Overlay Figure (Including Mode 0 - DC Anchor)
+# -------------------------------------------------------------
+fig_overlay, ax_overlay = plt.subplots(figsize=(8, 6))
 
-for idx, (label, R_matrix) in enumerate(evaluation_runs.items()):
-    U, energy, Vt, R_log = extract_log_correlation_eigenmodes(R_matrix)
-    
-    # Column 1: Logarithmic Energy Spectrum Decay
-    axs[idx, 0].plot(np.arange(len(energy[:20])), energy[:20], 'o-', color='indigo', linewidth=2)
-    axs[idx, 0].set_yscale('log') # Forces logarithmic scaling on the Y-axis
-    axs[idx, 0].set_title(f"{label}\nLog Singular Value Decay")
-    axs[idx, 0].set_xlabel("Mode Index")
-    axs[idx, 0].set_ylabel("Relative Amplitude (Log Scale)")
-    axs[idx, 0].grid(True, which="both", linestyle='--', alpha=0.5)
-    
-    # Column 2: Log-Compressed 2D Correlation Surface (Amplifies Sidelobes)
-    im1 = axs[idx, 1].imshow(R_log, cmap='viridis', origin='lower')
-    axs[idx, 1].set_title("Full Surface: log10(|R_sh|)")
-    fig.colorbar(im1, ax=axs[idx, 1], fraction=0.046, pad=0.04)
-    
-    # Column 3: Reconstructed Sidelobe Mode (Combines Subdominant Modes 2 through 5)
-    # Stripping out the dominant Mode 0 lets us look directly at the hidden structures
-    sidelobe_reconstruction = np.zeros_like(R_matrix)
-    for m in range(1, 5):
-        sidelobe_reconstruction += energy[m] * np.outer(U[:, m], Vt[m, :])
-        
-    im2 = axs[idx, 2].imshow(sidelobe_reconstruction, cmap='coolwarm', origin='lower')
-    axs[idx, 2].set_title("Subdominant Sidelobe Space (Modes 2-5)")
-    fig.colorbar(im2, ax=axs[idx, 2], fraction=0.046, pad=0.04)
+markers = ['o-', 's-', 'd-', '^-']
+colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728']
+modes_indices = np.arange(20)
 
-plt.tight_layout()
-output_path = os.path.join(BASE_DIR, "art_llm_log_sidelobes.png")
-plt.savefig(output_path, dpi=300)
-print(f"Log-domain visualization complete: {output_path}")
+for idx, (label, s_spectrum) in enumerate(saved_singular_values.items()):
+    # Plotting absolute singular value profiles without internal re-normalization bounds
+    ax_overlay.semilogy(modes_indices, s_spectrum, markers[idx], color=colors[idx], linewidth=2, label=label)
+
+ax_overlay.set_xlabel('Mode Index (DC Component at Mode 0)', fontsize=11)
+ax_overlay.set_ylabel('Singular Value Magnitude (Log Scale)', fontsize=11)
+ax_overlay.set_title('Global Structural Complexity Comparison:\nLog Spectral Power Decay Curves', weight='bold', fontsize=12, pad=12)
+ax_overlay.grid(True, which="both", linestyle='--', alpha=0.5)
+
+ax_overlay.set_xticks(np.arange(0, 20, 2))
+ax_overlay.set_xlim(-0.5, 19.5)
+# Locks the vertical coordinate frame securely to prevent matplotlib bounding box illusions
+ax_overlay.set_ylim(min(min(v) for v in saved_singular_values.values()) * 0.5, 1.5)
+ax_overlay.legend(loc='upper right', fontsize=10)
+
+overlay_path = os.path.join(BASE_DIR, "overlaid_decay_spectrum.png")
+plt.savefig(overlay_path, dpi=300, bbox_inches='tight')
+plt.close()
+print(f"Master comparative curve saved successfully at: {overlay_path}")
+
 
