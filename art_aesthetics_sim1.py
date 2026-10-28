@@ -330,6 +330,11 @@ J_conf_avg = extract_average_jacobian(net_conflict, generate_conflict_batch, num
 # ---------------------------------------------------------
 # 6. Balanced & Standardized Evaluation Protocol
 # ---------------------------------------------------------
+# pyrefly: ignore[missing-import]
+import numpy as np
+import scipy.linalg as la
+import matplotlib.pyplot as plt
+import os
 def evaluate_stimulus_spectral(net, jacobian, stimulus_np):
     """
     Decomposes the cross-correlation surface using SVD to track 
@@ -387,6 +392,12 @@ saved_singular_values = {
 # -------------------------------------------------------------
 # Standalone Overlay Figure (Including Mode 0 - DC Anchor)
 # -------------------------------------------------------------
+
+import numpy as np
+import scipy.linalg as la
+import matplotlib.pyplot as plt
+import os
+
 fig_overlay, ax_overlay = plt.subplots(figsize=(8, 6))
 
 markers = ['o-', 's-', 'd-', '^-']
@@ -414,3 +425,68 @@ plt.close()
 print(f"Master comparative curve saved successfully at: {overlay_path}")
 
 
+import numpy as np
+import scipy.linalg as la
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+
+def power_law(m, C, alpha):
+    return C * (m ** -alpha)
+
+# --- 1. Compute Quantitative Spectral Metrics ---
+print("\n" + "="*90)
+print("QUANTITATIVE CONVERGENCE ANALYSIS: POWER-LAW DECAY & SPECTRAL ENTROPY")
+print("="*90)
+print(f"{'Configuration':<30} | {'Decay Exponent (alpha)':<22} | {'Spectral Entropy (Hspec)':<24}")
+print("-"*90)
+
+fitted_metrics = {}
+mode_indices = np.arange(1, 20)  # Evaluate subdominant modes 1 to 19
+
+for label, S_spectrum in saved_singular_values.items():
+    # Normalize the spectrum up to mode 20 to compute probability distribution
+    S_trunc = S_spectrum[:20]
+    p_s = S_trunc / np.sum(S_trunc)
+    
+    # Compute Singular Value Spectral Entropy (H_spec)
+    p_s_nz = p_s[p_s > 1e-12]
+    H_spec = -np.sum(p_s_nz * np.log2(p_s_nz))
+    
+    # Fit power law curve to subdominant modes (Modes 1 to 19)
+    # log(S) = log(C) - alpha * log(m)
+    S_fit_data = S_spectrum[1:20]
+    params, _ = curve_fit(power_law, mode_indices, S_fit_data, p0=[S_fit_data[0], 1.0], maxfev=10000)
+    C_opt, alpha_opt = params
+    
+    fitted_metrics[label] = {"alpha": alpha_opt, "H_spec": H_spec}
+    print(f"{label:<30} | {alpha_opt:<22.4f} | {H_spec:<24.4f}")
+
+print("="*90)
+
+
+# --- 2. Plot Spatial Heatmaps of SVD Modes (Up to Mode 5) ---
+# Inspecting modes 1 through 5 (dropping DC Mode 0)
+for label, R_matrix in evaluation_runs.items():
+    U, S, Vt = la.svd(R_matrix, full_matrices=False)
+    
+    fig, axes = plt.subplots(1, 5, figsize=(18, 3.5))
+    fig.suptitle(f"Spatial SVD Eigenmode Topology: {label}", fontsize=12, fontweight='bold', y=1.05)
+    
+    for m in range(1, 6):
+        # Compute the 2D spatial projection of the individual mode m
+        spatial_mode = np.outer(U[:, m], Vt[m, :])
+        
+        # Symmetric color limits to isolate structural zero-crossings
+        vbound = np.max(np.abs(spatial_mode))
+        
+        ax = axes[m - 1]
+        im = ax.imshow(spatial_mode, cmap='RdBu_r', vmin=-vbound, vmax=vbound, origin='lower')
+        ax.set_title(f"Mode {m}", fontsize=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
+        
+    plt.tight_layout()
+    mode_plot_path = os.path.join(BASE_DIR, f"svd_modes_{label.lower().replace(' ', '_')}.png")
+    plt.savefig(mode_plot_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Spatial Mode Grid Saved: {mode_plot_path}")
