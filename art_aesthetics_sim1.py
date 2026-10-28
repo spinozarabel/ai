@@ -76,63 +76,34 @@ def generate_synthetic_picasso():
     field = np.sign(np.sin(10 * XX + 5 * YY)) * np.exp(-abs(XX)) + 0.5 * np.sign(np.cos(15 * XX - 8 * YY)) * (abs(YY) < 0.6)
     return (field - field.min()) / (field.max() - field.min() + 1e-8)
 
-def load_digital_stimulus(filename, urls, fallback_fn, target_size=(128, 128), crop_mode=None):
+def load_digital_stimulus(filename, fallback_fn=None, target_size=(128, 128), crop_mode=None, alt_names=None):
     """
-    Loads authentic digital painting from local cache or Wikimedia Commons URL.
-    Supports intelligent face cropping to ensure fair, scale-matched comparison
-    between Botticelli's Venus and Picasso's Weeping Woman.
+    Loads local image stimulus file without downloading from the web.
+    Supports intelligent face and center cropping to ensure fair, scale-matched comparison.
     """
-    if isinstance(urls, str):
-        urls = [urls]
-
-    images_dir = os.path.join(BASE_DIR, "images")
-    os.makedirs(images_dir, exist_ok=True)
-    filepath = os.path.join(images_dir, filename)
-
-    # If file exists but is a small fallback stub (< 10 KB), remove it so the real image can be downloaded
-    if os.path.exists(filepath) and os.path.getsize(filepath) < 10000:
-        try:
-            os.remove(filepath)
-        except OSError:
-            pass
+    filepath = resolve_image_path(filename, alt_names)
 
     if not os.path.exists(filepath):
-        downloaded = False
-        for url in urls:
-            print(f"Fetching digital image: {filename} from {url}...")
-            try:
-                headers = {
-                    'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
-                    'Referer': 'https://www.artchive.com/'
-                }
-                req = urllib.request.Request(url, headers=headers)
-                with urllib.request.urlopen(req, timeout=15) as response:
-                    content = response.read()
-                    with open(filepath, 'wb') as f:
-                        f.write(content)
-                print(f"Successfully downloaded {filename} ({len(content)} bytes).")
-                downloaded = True
-                break
-            except Exception as e:
-                print(f"Network fetch failed from {url} ({e}). Trying next source...")
-
-        if not downloaded:
-            print(f"All network sources failed for {filename}. Generating high-fidelity fallback.")
-            fallback_img = fallback_fn()
-            pil_fallback = Image.fromarray((fallback_img * 255).astype(np.uint8))
-            pil_fallback.save(filepath)
-            return fallback_img
+        print(f"Warning: Image file '{filename}' not found at {filepath}.")
+        if fallback_fn is not None:
+            print("Generating high-fidelity fallback stimulus.")
+            return fallback_fn()
+        else:
+            raise FileNotFoundError(f"Image file '{filename}' not found at {filepath}.")
 
     try:
+        print(f"Loading local image stimulus from: {filepath}")
         pil_img = Image.open(filepath).convert('L')
         w, h = pil_img.size
 
         # Center-crop to square preserving original composition aspect ratio
         min_dim = min(w, h)
         left = (w - min_dim) // 2
-        # Slight upward bias (35% from top) to perfectly center the facial features (eyes, nose, mouth)
-        top = int((h - min_dim) * 0.35) if h > w else (h - min_dim) // 2
+        if crop_mode == 'face':
+            # Slight upward bias (35% from top) to perfectly center facial features (eyes, nose, mouth)
+            top = int((h - min_dim) * 0.35) if h > w else (h - min_dim) // 2
+        else:
+            top = (h - min_dim) // 2
         pil_img = pil_img.crop((left, top, left + min_dim, top + min_dim))
 
         pil_img = pil_img.resize(target_size, Image.Resampling.LANCZOS)
@@ -140,23 +111,19 @@ def load_digital_stimulus(filename, urls, fallback_fn, target_size=(128, 128), c
         arr = (arr - arr.min()) / (arr.max() - arr.min() + 1e-8)
         return arr
     except Exception as e:
-        print(f"Error loading {filepath}: {e}. Falling back to generative rendering.")
-        return fallback_fn()
+        print(f"Error loading {filepath}: {e}.")
+        if fallback_fn is not None:
+            print("Falling back to generative rendering.")
+            return fallback_fn()
+        raise
 
-# Botticelli: The Virgin's Face (c. 1490, Florence, Italy)
-# Source: https://www.artchive.com/artwork/the-virgin-from-the-virgin-and-child-with-saint-john-and-an-angel-sandro-botticelli-c-1490-florence-italy/
-urls_botticelli = [
-    # 1. Artchive authentic high-resolution portrait crop of the Virgin's face
-    "https://www.artchive.com/wp-content/uploads/2024/08/the-virgin-from-the-virgin-and-child-with-saint-john-and-an-angel-sandro-botticelli-c1490-florence-italy.jpeg",
-    # 2. Web Gallery of Art face detail (fallback)
-    "https://upload.wikimedia.org/wikipedia/commons/5/5f/Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg",
-    "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5f/Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg/500px-Sandro_Botticelli_-_The_Birth_of_Venus_%28detail%29_-_WGA2775.jpg"
-]
-S_Botticelli = load_digital_stimulus("botticelli_virgin_face.jpg", urls_botticelli, generate_synthetic_botticelli)
-
-# Picasso: The Weeping Woman (Digital Image)
-url_picasso = "https://upload.wikimedia.org/wikipedia/en/thumb/1/14/Picasso_The_Weeping_Woman_Tate_identifier_T05010_10.jpg/250px-Picasso_The_Weeping_Woman_Tate_identifier_T05010_10.jpg"
-S_Picasso = load_digital_stimulus("picasso_weeping_woman.jpg", url_picasso, generate_synthetic_picasso)
+# User-provided image stimuli: imgae1.jpg (Image 1) and image2.jpg (Image 2)
+# Handles both 'imgae1.jpg' and 'image1.jpg' automatically
+S_Botticelli = load_digital_stimulus("image1.jpg", fallback_fn=generate_synthetic_botticelli, crop_mode='face', alt_names=["image1.jpg", "image1.jpeg", "imgae1.jpeg", "image1.png"])
+S_Picasso = load_digital_stimulus("image2.jpg", fallback_fn=generate_synthetic_picasso, crop_mode='center', alt_names=["imgae2.jpg", "image2.jpeg", "imgae2.jpeg", "image2.png"])
+S_PinkNoise = S_Picasso  # Backward compatibility alias
+S_Image1 = S_Botticelli   # Descriptive aliases
+S_Image2 = S_Picasso
 
 # ---------------------------------------------------------
 # 2. Scaled Multi-Scale Convolutional Autoencoder Architecture
