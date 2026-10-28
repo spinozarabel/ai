@@ -75,7 +75,33 @@ def generate_synthetic_botticelli():
 def generate_synthetic_picasso():
     field = np.sign(np.sin(10 * XX + 5 * YY)) * np.exp(-abs(XX)) + 0.5 * np.sign(np.cos(15 * XX - 8 * YY)) * (abs(YY) < 0.6)
     return (field - field.min()) / (field.max() - field.min() + 1e-8)
+def resolve_image_path(filename, alt_names=None):
+    """
+    Resolves the image file path across project root, images directory, or current working directory.
+    Supports alternate name spellings (e.g., handling typo variations like imgae1.jpg vs image1.jpg).
+    """
+    candidates = [filename]
+    if alt_names:
+        candidates.extend(alt_names)
 
+    search_dirs = [
+        BASE_DIR,
+        os.path.join(BASE_DIR, "images"),
+        os.getcwd()
+    ]
+
+    for name in candidates:
+        if os.path.isabs(name) and os.path.exists(name):
+            return name
+        for sdir in search_dirs:
+            candidate_path = os.path.join(sdir, name)
+            if os.path.exists(candidate_path):
+                return candidate_path
+        if os.path.exists(name):
+            return os.path.abspath(name)
+
+    # Return default path under BASE_DIR if not yet present
+    return os.path.join(BASE_DIR, filename)
 def load_digital_stimulus(filename, fallback_fn=None, target_size=(128, 128), crop_mode=None, alt_names=None):
     """
     Loads local image stimulus file without downloading from the web.
