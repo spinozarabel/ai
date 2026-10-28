@@ -389,6 +389,13 @@ saved_singular_values = {
     "Conflict Net x Picasso":    S_c_pic[:20]
 }
 
+evaluation_runs = {
+    "Physics Net x Botticelli": R_p_bot,
+    "Physics Net x Picasso": R_p_pic,
+    "Conflict Net x Botticelli": R_c_bot,
+    "Conflict Net x Picasso": R_c_pic
+}
+
 # -------------------------------------------------------------
 # Standalone Overlay Figure (Including Mode 0 - DC Anchor)
 # -------------------------------------------------------------
