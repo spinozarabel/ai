@@ -473,27 +473,67 @@ print("="*90)
 
 # --- 2. Plot Spatial Heatmaps of SVD Modes (Up to Mode 5) ---
 # Inspecting modes 1 through 5 (dropping DC Mode 0)
+# --- Step 1: Pre-compute all modes and find the global absolute max value ---
+all_computed_modes = {}
+global_max_val = 0.0
+
 for label, R_matrix in evaluation_runs.items():
     U, S, Vt = la.svd(R_matrix, full_matrices=False)
+    energy = S / np.sum(S)
     
-    fig, axes = plt.subplots(1, 5, figsize=(18, 3.5))
-    fig.suptitle(f"Spatial SVD Eigenmode Topology: {label}", fontsize=12, fontweight='bold', y=1.05)
-    
-    for m in range(1, 6):
-        # Compute the 2D spatial projection of the individual mode m
-        spatial_mode = np.outer(U[:, m], Vt[m, :])
+    config_modes = []
+    for col_idx in range(5):
+        mode_num = col_idx + 1  # Modes 1 through 5
+        spatial_mode = energy[mode_num] * np.outer(U[:, mode_num], Vt[mode_num, :])
+        config_modes.append(spatial_mode)
         
-        # Symmetric color limits to isolate structural zero-crossings
-        vbound = np.max(np.abs(spatial_mode))
+        # Track the absolute maximum data value found across everything
+        abs_max = np.max(np.abs(spatial_mode))
+        if abs_max > global_max_val:
+            global_max_val = abs_max
+            
+    all_computed_modes[label] = config_modes
+
+# Lock the global color scale symmetrically based on the true maximum data value
+vmin_global = -global_max_val
+vmax_global = global_max_val
+cmap_style = 'RdBu_r'
+
+# --- Step 2: Render the Unified 4x5 Subplot Grid ---
+fig, axes = plt.subplots(4, 5, figsize=(18, 14))
+plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
+
+for row_idx, (label, modes_list) in enumerate(all_computed_modes.items()):
+    for col_idx in range(5):
+        mode_num = col_idx + 1
+        ax = axes[row_idx, col_idx]
         
-        ax = axes[m - 1]
-        im = ax.imshow(spatial_mode, cmap='RdBu_r', vmin=-vbound, vmax=vbound, origin='lower')
-        ax.set_title(f"Mode {m}", fontsize=10)
+        # Render using the locked global scale boundaries
+        im = ax.imshow(modes_list[col_idx], cmap=cmap_style, vmin=vmin_global, vmax=vmax_global, origin='lower')
+        
+        # --- Axis Labeling & Formatting ---
+        if row_idx == 0:
+            ax.set_title(f"Mode {mode_num}", fontsize=12, fontweight='bold', pad=10)
+            
+        if col_idx == 0:
+            ax.set_ylabel(f"{label}\n\nY Index", fontsize=10, fontweight='bold')
+        
+        if row_idx == 3:
+            ax.set_xlabel("X Index", fontsize=9)
+            
         ax.set_xticks([])
         ax.set_yticks([])
-        
-    plt.tight_layout()
-    mode_plot_path = os.path.join(BASE_DIR, f"svd_modes_{label.lower().replace(' ', '_')}.png")
-    plt.savefig(mode_plot_path, dpi=300, bbox_inches='tight')
-    plt.close()
-    print(f"Spatial Mode Grid Saved: {mode_plot_path}")
+
+# --- Step 3: Add the Master Colorbar ---
+fig.subplots_adjust(bottom=0.08, top=0.92, left=0.08, right=0.88, hspace=0.3, wspace=0.15)
+cbar_ax = fig.add_axes([0.91, 0.15, 0.015, 0.70])
+cbar = fig.colorbar(im, cax=cbar_ax)
+cbar.set_label(f'Spatial Mode Amplitude (Globally Locked Scale: ±{global_max_val:.4f})', 
+               rotation=270, labelpad=20, fontsize=12, fontweight='bold')
+
+# Save the publication graphic
+output_unified_grid = os.path.join(BASE_DIR, "unified_globally_locked_modes.png")
+plt.savefig(output_unified_grid, dpi=300, bbox_inches='tight')
+plt.close()
+
+print(f"\n[Success] Globally Locked 4x5 SVD Grid Saved (Max: ±{global_max_val:.6f}): {output_unified_grid}")
