@@ -147,8 +147,8 @@ def load_digital_stimulus(filename, fallback_fn=None, target_size=(128, 128), cr
 
 # User-provided image stimuli: imgae1.jpg (Image 1) and image2.jpg (Image 2)
 # Handles both 'imgae1.jpg' and 'image1.jpg' automatically
-S_Botticelli = load_digital_stimulus("image20.jpg", fallback_fn=generate_synthetic_botticelli, crop_mode='face', alt_names=["image1.jpg", "image1.jpeg", "imgae1.jpeg", "image1.png"])
-S_Picasso = load_digital_stimulus("image21.jpg", fallback_fn=generate_synthetic_picasso, crop_mode='center', alt_names=["imgae2.jpg", "image2.jpeg", "imgae2.jpeg", "image2.png"])
+S_Botticelli = load_digital_stimulus("image1.jpg", fallback_fn=generate_synthetic_botticelli, crop_mode='face', alt_names=["image1.jpg", "image1.jpeg", "imgae1.jpeg", "image1.png"])
+S_Picasso = load_digital_stimulus("image2.jpg", fallback_fn=generate_synthetic_picasso, crop_mode='center', alt_names=["imgae2.jpg", "image2.jpeg", "imgae2.jpeg", "image2.png"])
 S_PinkNoise = S_Picasso  # Backward compatibility alias
 S_Image1 = S_Botticelli   # Descriptive aliases
 S_Image2 = S_Picasso
