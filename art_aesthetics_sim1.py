@@ -19,6 +19,8 @@ np.random.seed(42)
 
 # Base project directory for outputs and assets
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULTS_DIR = os.path.join(BASE_DIR, "results")
+os.makedirs(RESULTS_DIR, exist_ok=True)
 
 # ---------------------------------------------------------
 # 1. Digital & Synthetic Visual Stimuli Construction (128 x 128)
@@ -426,7 +428,7 @@ ax_overlay.set_xlim(-0.5, 19.5)
 ax_overlay.set_ylim(min(min(v) for v in saved_singular_values.values()) * 0.5, 1.5)
 ax_overlay.legend(loc='upper right', fontsize=10)
 
-overlay_path = os.path.join(BASE_DIR, "overlaid_decay_spectrum.png")
+overlay_path = os.path.join(RESULTS_DIR, "overlaid_decay_spectrum.png")
 plt.savefig(overlay_path, dpi=300, bbox_inches='tight')
 plt.close()
 print(f"Master comparative curve saved successfully at: {overlay_path}")
@@ -532,7 +534,7 @@ cbar.set_label(f'Spatial Mode Amplitude (Globally Locked Scale: ±{global_max_va
                rotation=270, labelpad=20, fontsize=12, fontweight='bold')
 
 # Save the publication graphic
-output_unified_grid = os.path.join(BASE_DIR, "unified_globally_locked_modes.png")
+output_unified_grid = os.path.join(RESULTS_DIR, "unified_globally_locked_modes.png")
 plt.savefig(output_unified_grid, dpi=300, bbox_inches='tight')
 plt.close()
 
